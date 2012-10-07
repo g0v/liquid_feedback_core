@@ -1,0 +1,7 @@
+.+~
+.AppleDouble
+
+syntax: regexp
+^lf_update
+^reinit.sh
+
