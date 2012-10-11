@@ -1,5 +1,6 @@
 .+~
 .AppleDouble
+:2eDS_Store
 
 syntax: regexp
 ^lf_update
