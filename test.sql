@@ -236,7 +236,7 @@ INSERT INTO "supporter" ("member_id", "initiative_id", "draft_id") VALUES
   (6,  9,  9),
   (6, 10, 10),
   (6, 11, 11);
- 
+
 SELECT "time_warp"();
 SELECT "time_warp"();
 SELECT "time_warp"();

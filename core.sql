@@ -1916,7 +1916,7 @@ CREATE VIEW "unit_member_count" AS
     count("member"."id") AS "member_count"
   FROM "unit"
   LEFT JOIN "privilege"
-  ON "privilege"."unit_id" = "unit"."id" 
+  ON "privilege"."unit_id" = "unit"."id"
   AND "privilege"."voting_right"
   LEFT JOIN "member"
   ON "member"."id" = "privilege"."member_id"
@@ -2430,7 +2430,7 @@ CREATE FUNCTION "delegation_chain_for_closed_issue"
         RETURN;
       END IF;
 
-      -- the member delegated        
+      -- the member delegated
       SELECT INTO "delegating_voter_row" * FROM "delegating_voter"
         WHERE "issue_id" = "issue_id_p"
         AND "member_id" = "member_id_p";
@@ -2483,7 +2483,7 @@ CREATE FUNCTION "delegation_chain"
       "where_area"         BOOLEAN;
       "where_issue"        BOOLEAN;
     BEGIN
-    
+
       -- scopes
       IF
         "unit_id_p" NOTNULL AND "area_id_p" ISNULL AND "issue_id_p" ISNULL
@@ -2518,13 +2518,13 @@ CREATE FUNCTION "delegation_chain"
         END IF;
         "scope_v" := 'issue';
         SELECT "area_id" INTO "area_id_v" FROM "issue" WHERE "id" = "issue_id_p";
-        SELECT "unit_id" INTO "unit_id_v" FROM "area"  WHERE "id" = "area_id_v";      
+        SELECT "unit_id" INTO "unit_id_v" FROM "area"  WHERE "id" = "area_id_v";
       ELSE
         RAISE EXCEPTION 'Exactly one of unit_id_p, area_id_p, or issue_id_p must be NOTNULL.';
       END IF;
 
       "output_rows" := '{}';
-      
+
       -- first row is the member itself
       "output_row"."index"         := 0;
       "output_row"."member_id"     := "member_id_p";
@@ -2532,7 +2532,7 @@ CREATE FUNCTION "delegation_chain"
       "output_row"."overridden"    := FALSE;
       "output_row"."scope_in"      := NULL;
       "output_row"."scope_out"     := NULL;
-      
+
       -- participation
       IF "scope_v" = 'unit' THEN
         "output_row"."participation" := FALSE;
@@ -2552,11 +2552,11 @@ CREATE FUNCTION "delegation_chain"
         ELSE
           "output_row"."participation" := NULL;
         END IF;
-      END IF;      
-      
+      END IF;
+
       "output_rows" := "output_rows" || "output_row";
-      
-      "output_row"."index" := 1;   
+
+      "output_row"."index" := 1;
 
       -- include parent scopes or not
       IF "deep_p" THEN
@@ -2566,11 +2566,11 @@ CREATE FUNCTION "delegation_chain"
       ELSE
         "where_unit"  := ("scope_v" = 'unit');
         "where_area"  := ("scope_v" = 'area');
-        "where_issue" := ("scope_v" = 'issue');     
+        "where_issue" := ("scope_v" = 'issue');
       END IF;
 
       -- get the delegations
-      FOR "delegation_row" IN  
+      FOR "delegation_row" IN
         SELECT * FROM "delegation"
           WHERE "truster_id" = "member_id_p"
           AND (
@@ -2580,20 +2580,20 @@ CREATE FUNCTION "delegation_chain"
           )
           ORDER BY "scope" DESC, "preference"
       LOOP
-     
+
         -- member_id
         "output_row"."member_id" := "delegation_row"."trustee_id";
-      
-        -- overridden            
+
+        -- overridden
         IF "output_row"."participation" ISNULL THEN
           "output_row"."overridden" := NULL;
         ELSIF "output_row"."participation" THEN
           "output_row"."overridden" := TRUE;
         END IF;
-        
+
         -- scope_in
         "output_row"."scope_in" := "output_row"."scope_out";
-        
+
         -- member_valid
         "output_row"."member_valid" := EXISTS (
           SELECT NULL FROM "member" JOIN "privilege"
@@ -2602,7 +2602,7 @@ CREATE FUNCTION "delegation_chain"
           WHERE "id" = "output_row"."member_id"
           AND "member"."active" AND "privilege"."voting_right"
         );
-        
+
         -- participation
         IF "output_row"."member_valid" THEN
           IF "scope_v" = 'unit' THEN
@@ -2627,28 +2627,28 @@ CREATE FUNCTION "delegation_chain"
         ELSE
           "output_row"."participation" := FALSE;
         END IF;
-        
+
         -- scope_out
         "output_row"."scope_out" := "delegation_row"."scope";
 
         "output_rows" := "output_rows" || "output_row";
         "output_row"."index" := "output_row"."index" + 1;
       END LOOP;
-      
+
       -- return rows
       "i" := 1;
       LOOP
         "output_row" := "output_rows"["i"];
         EXIT WHEN "output_row" ISNULL;  -- NOTE: ISNULL and NOT ... NOTNULL produce different results!
-        
+
         IF "scope_v" = 'unit' THEN
           "output_row"."participation" := NULL;
         END IF;
-        
+
         RETURN NEXT "output_row";
         "i" := "i" + 1;
       END LOOP;
-      
+
       RETURN;
     END;
   $$;
@@ -2704,16 +2704,16 @@ CREATE FUNCTION "delegation_info"
       "result"      "delegation_info_type";
     BEGIN
       "result"."own_participation" := FALSE;
-      
+
       -- go through the delegation chain
       FOR "current_row" IN
         SELECT * FROM "delegation_chain"("member_id_p", "unit_id_p", "area_id_p", "issue_id_p", TRUE)
       LOOP
-      
+
         IF "result"."participating_member_id" ISNULL AND "current_row"."participation" THEN
           "result"."participating_member_id" := "current_row"."member_id";
         END IF;
-      
+
         IF "current_row"."member_id" = "member_id_p" THEN
           "result"."own_participation"    := "current_row"."participation";
           "result"."own_delegation_scope" := "current_row"."scope_out";
@@ -2734,9 +2734,9 @@ CREATE FUNCTION "delegation_info"
             "result"."other_trustee_ellipsis" := TRUE;
           END IF;
         END IF;
-        
+
       END LOOP;
-      
+
       RETURN "result";
     END;
   $$;
@@ -3644,8 +3644,8 @@ CREATE FUNCTION "close_voting"("issue_id_p" "issue"."id"%TYPE)
 COMMENT ON FUNCTION "close_voting"
   ( "issue"."id"%TYPE )
   IS 'Closes the voting on an issue, and calculates positive and negative votes for each initiative; The ranking is not calculated yet, to keep the (locking) transaction short.';
-  
-  
+
+
 CREATE FUNCTION "defeat_strength"
   ( "positive_votes_p" INT4, "negative_votes_p" INT4 )
   RETURNS INT8
