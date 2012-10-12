@@ -1,0 +1,21 @@
+#!/bin/sh
+
+PIDFILE="/var/run/lf_notification.pid"
+PID=$$
+
+if [ -f "${PIDFILE}" ] && kill -CONT $( cat "${PIDFILE}" ); then
+  echo "lf_notification is already running."
+  exit 1
+fi
+
+echo "${PID}" > "${PIDFILE}"
+
+log=/var/log/lqfb/notification.log
+
+while true; do
+  cd /opt/liquid_feedback_frontend/
+  date >> $log
+  su www-data -c ' echo "Event:send_notifications()" | ../webmcp/bin/webmcp_shell myconfig ' >> $log
+  sleep 60
+done
+
