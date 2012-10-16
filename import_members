@@ -1,0 +1,27 @@
+#!/bin/bash
+# Imports members from a CSV file if a CSV file is found
+# This script is intended to be run by cron as root.
+
+# exit on error
+set -e
+
+
+# absolute path of the CSV file
+csvfile="/opt/liquid_feedback_core/import/member_import_utf8.csv"
+
+
+if [ -e $csvfile ]
+then
+
+  if [ "` file -ib $csvfile `" != "text/plain; charset=utf-8" ]
+  then
+    echo "Error: CSV file has not the expected format."
+    exit 1
+  fi
+
+  cd /opt/liquid_feedback_frontend/
+  su www-data -c " echo \"util.import_members('$csvfile')\" | ../webmcp/bin/webmcp_shell myconfig "
+
+  mv $csvfile $csvfile.imported_$( date +%Y-%m-%d_%H-%I-%S )
+
+fi
