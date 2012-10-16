@@ -906,19 +906,19 @@ COMMENT ON COLUMN "delegation"."preference" IS 'Preference rank in list of trust
 -- auto increment preference
 
 CREATE FUNCTION delegation_insert()
-RETURNS TRIGGER
-AS $$
-BEGIN
-SELECT COALESCE(MAX(preference), 0) + 1
-    INTO NEW.preference
-    FROM "delegation"
-    WHERE truster_id = NEW.truster_id
-      AND (NEW.unit_id ISNULL OR unit_id = NEW.unit_id)
-      AND (NEW.area_id ISNULL OR area_id = NEW.area_id)
-      AND (NEW.issue_id ISNULL OR issue_id = NEW.issue_id);
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+  RETURNS TRIGGER
+  LANGUAGE 'plpgsql' VOLATILE AS $$
+    BEGIN
+      SELECT COALESCE(MAX(preference), 0) + 1
+        INTO NEW.preference
+        FROM "delegation"
+        WHERE truster_id = NEW.truster_id
+          AND (NEW.unit_id ISNULL OR unit_id = NEW.unit_id)
+          AND (NEW.area_id ISNULL OR area_id = NEW.area_id)
+          AND (NEW.issue_id ISNULL OR issue_id = NEW.issue_id);
+      RETURN NEW;
+    END;
+  $$;
 
 CREATE TRIGGER delegation_insert
 BEFORE INSERT ON "delegation"
@@ -952,7 +952,7 @@ COMMENT ON TABLE "direct_population_snapshot" IS 'Delegations increasing the wei
 
 COMMENT ON COLUMN "delegating_population_snapshot"."event"               IS 'Reason for snapshot, see "snapshot_event" type for details';
 COMMENT ON COLUMN "delegating_population_snapshot"."member_id"           IS 'Delegating member';
-COMMENT ON COLUMN "delegating_population_snapshot"."delegate_member_id"  IS 'Members who acts as delegate; refers to "member_id" column of table "direct_population_snapshot"';
+COMMENT ON COLUMN "delegating_population_snapshot"."delegate_member_id"  IS 'Member who acts as delegate; refers to "member_id" column of table "direct_population_snapshot"';
 
 
 CREATE TABLE "direct_interest_snapshot" (
