@@ -2,26 +2,34 @@
 # Imports members from a CSV file if a CSV file is found
 # This script is intended to be run by cron as root.
 
-# exit on error
-set -e
-
-
 # absolute path of the CSV file
-csvfile="/opt/liquid_feedback_core/import/member_import_utf8.csv"
+csvfile="/opt/dcfb/member_import/member_import.csv"
+
+# mail address(es) for report, separated by spaces
+mail="dcfb@cmr.cx"
 
 
-if [ -e $csvfile ]
+if [ ! -e $csvfile ]
 then
+  exit 0
+fi
 
-  if [ "` file -ib $csvfile `" != "text/plain; charset=utf-8" ]
+(
+
+  if [ "` file -ib $csvfile `" = "text/plain; charset=utf-8" ]
   then
-    echo "Error: CSV file has not the expected format."
-    exit 1
+
+    cd /opt/dcfb/liquid_feedback_frontend/ && \
+    su www-data -c " echo \"util.import_members('$csvfile')\" | ../webmcp/bin/webmcp_shell myconfig " | \
+    # remove non-printable characters, because they confuse the mail command
+    tr -cd "[:print:]\n"
+
+  else
+
+    echo "Format of the CSV file is '` file -ib $csvfile `' instead of the expected 'text/plain; charset=utf-8'!"
+
   fi
 
-  cd /opt/liquid_feedback_frontend/
-  su www-data -c " echo \"util.import_members('$csvfile')\" | ../webmcp/bin/webmcp_shell myconfig "
+  mv $csvfile $csvfile.processed_$( date +%Y-%m-%d_%H-%I-%S )
 
-  mv $csvfile $csvfile.imported_$( date +%Y-%m-%d_%H-%I-%S )
-
-fi
+) 2>&1 | mail -s "DiscreteFeedback member import report" $mail
