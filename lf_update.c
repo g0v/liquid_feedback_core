@@ -24,7 +24,7 @@ int main(int argc, char **argv) {
     fprintf(stdout, "<conninfo> is specified by PostgreSQL's libpq,\n");
     fprintf(stdout, "see http://www.postgresql.org/docs/8.4/static/libpq-connect.html\n");
     fprintf(stdout, "\n");
-    fprintf(stdout, "Example: %s dbname=liquid_feedback\n", argv[0]);
+    fprintf(stdout, "Example: %s dbname=pirate_feedback\n", argv[0]);
     fprintf(stdout, "\n");
     return argc == 1 ? 1 : 0;
   }
@@ -69,7 +69,7 @@ int main(int argc, char **argv) {
   } else {
     PQclear(status);
   }
- 
+
   // check member activity:
   status = PQexec(db, "SELECT \"check_activity\"()");
   if (!status) {

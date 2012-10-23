@@ -1,15 +1,15 @@
 
 Setup the database:
-$ createdb liquid_feedback
-$ psql -v ON_ERROR_STOP=1 -f core.sql liquid_feedback
+$ createdb pirate_feedback
+$ psql -v ON_ERROR_STOP=1 -f core.sql pirate_feedback
 
 Optionally insert demo data:
-$ psql -v ON_ERROR_STOP=1 -f demo.sql liquid_feedback
+$ psql -v ON_ERROR_STOP=1 -f demo.sql pirate_feedback
 
 Compile lf_update binary:
 $ make
 
-Ensure that "lf_update dbname=liquid_feedback" is called regularly!
+Ensure that "lf_update dbname=pirate_feedback" is called regularly!
 
 It is required that lf_update is executed regulary (i.e. every
 5 minutes via cron) to update cached supporter counts, to change
@@ -26,21 +26,23 @@ NOTE: When writing to the database, some INSERTs must be executed
 
 To create an export file, which is containing all but private data,
 you may use the lf_export shell-script:
-$ lf_export liquid_feedback export.sql.gz
+$ lf_export pirate_feedback export.sql.gz
 
 To uninstall the software, delete the lf_update binary
 and drop the database by entering the following command:
-$ dropdb liquid_feedback
+$ dropdb pirate_feedback
 
 Updating is done using the update scripts in the update/ directory.
 After updating it is recommended to recreate the schema as follows
 (assuming the database superuser is named "postgres"):
-$ pg_dump --disable-triggers --data-only DATABASE_NAME > tmp.sql
-$ dropdb DATABASE_NAME
-$ createdb DATABASE_NAME
-$ psql -v ON_ERROR_STOP=1 -f core.sql DATABASE_NAME
+$ cd /opt/pirate_feedback/liquid_feedback_core
+$ pg_dump --disable-triggers --data-only pirate_feedback > tmp/tmp.sql
+$ dropdb pirate_feedback
+$ createdb pirate_feedback
+$ createlang plpgsql pirate_feedback
+$ psql -v ON_ERROR_STOP=1 -f core.sql pirate_feedback
 $ su postgres  # (execute following command as database superuser)
-$ psql -v ON_ERROR_STOP=1 -f tmp.sql DATABASE_NAME
+$ psql -v ON_ERROR_STOP=1 -f tmp/tmp.sql pirate_feedback
 $ exit         # leave "su" command
-$ rm tmp.sql
+
 

@@ -10,10 +10,10 @@ fi
 
 echo "${PID}" > "${PIDFILE}"
 
-log=/var/log/lqfb/notification.log
+log=/var/log/pirate_feedback/notification.log
 
 while true; do
-  cd /opt/liquid_feedback_frontend/
+  cd /opt/pirate_feedback/liquid_feedback_frontend/
   date >> $log
   su www-data -c ' echo "Event:send_notifications()" | ../webmcp/bin/webmcp_shell myconfig ' >> $log
   sleep 60

@@ -3,10 +3,10 @@
 # This script is intended to be run by cron as root.
 
 # absolute path of the CSV file
-csvfile="/opt/dcfb/member_import/member_import.csv"
+csvfile="/opt/pirate_feedback/member_import/member_import.csv"
 
 # mail address(es) for report, separated by spaces
-mail="dcfb@cmr.cx"
+mail="pirate_feedback@cmr.cx"
 
 
 if [ ! -e $csvfile ]
@@ -19,7 +19,7 @@ fi
   if [ "` file -ib $csvfile `" = "text/plain; charset=utf-8" ]
   then
 
-    cd /opt/dcfb/liquid_feedback_frontend/ && \
+    cd /opt/pirate_feedback/liquid_feedback_frontend/ && \
     su www-data -c " echo \"util.import_members('$csvfile')\" | ../webmcp/bin/webmcp_shell myconfig " | \
     # remove non-printable characters, because they confuse the mail command
     tr -cd "[:print:]\n"
@@ -32,4 +32,4 @@ fi
 
   mv $csvfile $csvfile.processed_$( date +%Y-%m-%d_%H-%I-%S )
 
-) 2>&1 | mail -s "DiscreteFeedback member import report" $mail
+) 2>&1 | mail -s "Pirate Feedback member import report" $mail

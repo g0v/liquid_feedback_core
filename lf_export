@@ -5,7 +5,7 @@ if [ -z "$1" -o -z "$2" ]; then
   exit 1
 fi
 
-EXPORT_DBNAME=liquid_feedback_autoexport
+EXPORT_DBNAME=pirate_feedback_autoexport
 retval=0
 
 echo "Dropping database \"$EXPORT_DBNAME\" if existent..."
