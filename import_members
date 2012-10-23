@@ -6,7 +6,7 @@
 csvfile="/opt/pirate_feedback/member_import/member_import.csv"
 
 # mail address(es) for report, separated by spaces
-mail="pirate_feedback@cmr.cx"
+mail="pirate_feedback@example.com"
 
 
 if [ ! -e $csvfile ]
