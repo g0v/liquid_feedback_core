@@ -2,25 +2,21 @@
 # Imports members from a CSV file if a CSV file is found
 # This script is intended to be run by cron as root.
 
-# absolute path of the CSV file
-csvfile="/opt/pirate_feedback/member_import/member_import.csv"
+# read configuration
+source /opt/pirate_feedback/liquid_feedback_core/config
 
-# mail address(es) for report, separated by spaces
-mail="pirate_feedback@example.com"
-
-
-if [ ! -e $csvfile ]
+if [ ! -e $member_import_csvfile ]
 then
   exit 0
 fi
 
 (
 
-  if [ "` file -ib $csvfile `" = "text/plain; charset=utf-8" ]
+  if [ "` file -ib $member_import_csvfile `" = "text/plain; charset=utf-8" ]
   then
 
-    cd /opt/pirate_feedback/liquid_feedback_frontend/ && \
-    su www-data -c " echo \"util.import_members('$csvfile')\" | ../webmcp/bin/webmcp_shell myconfig " | \
+    cd $path/liquid_feedback_frontend/ && \
+    su $dbuser -c " echo \"util.import_members('$member_import_csvfile')\" | ../webmcp/bin/webmcp_shell myconfig " | \
     # remove non-printable characters, because they confuse the mail command
     tr -cd "[:print:]\n"
 
@@ -30,6 +26,6 @@ fi
 
   fi
 
-  mv $csvfile $csvfile.processed_$( date +%Y-%m-%d_%H-%I-%S )
+  mv $member_import_csvfile $member_import_csvfile_processed.processed_$( date +%Y-%m-%d_%H-%I-%S )
 
-) 2>&1 | mail -s "Pirate Feedback member import report" $mail
+) 2>&1 | mail -s "Pirate Feedback member import report" $member_import_mail

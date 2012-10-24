@@ -1,4 +1,9 @@
-#!/bin/sh
+#!/bin/bash
+# runs the core update routine
+# will be started by /etc/init.d/lf_updated
+
+# read configuration
+source /opt/pirate_feedback/liquid_feedback_core/config
 
 PIDFILE="/var/run/lf_updated.pid"
 PID=$$
@@ -11,7 +16,7 @@ fi
 echo "${PID}" > "${PIDFILE}"
 
 while true; do
-  su - www-data -c 'nice /opt/pirate_feedback/liquid_feedback_core/lf_update dbname=pirate_feedback 2>&1 | logger -t "lf_updated"'
+  su - $dbuser -c "nice $path/liquid_feedback_core/lf_update dbname=$dbname 2>&1 | logger -t 'lf_updated'"
   sleep 5
 done
 

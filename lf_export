@@ -2,13 +2,8 @@
 # backup and export database
 # should be run by cron as user apache/www-data
 
-dbname="pirate_feedback"
-dbname_export="${dbname}_export"
-
-# without .gz suffix
-exportfile="/opt/pirate_feedback/export_dump/pirate_feedback_bayern_` date +%Y-%m-%d_%H-%I `.sql"
-backupfile="/opt/pirate_feedback/backup_dump/pirate_feedback.sql"
-
+# read configuration
+source /opt/pirate_feedback/liquid_feedback_core/config
 
 echo "Dumping database \"$dbname\" to \"$backupfile\" ..."
 if (pg_dump "$dbname" > "$backupfile")
@@ -47,7 +42,6 @@ fi
 
 echo "Dropping database \"$dbname_export\" ..."
 dropdb "$dbname_export"
-
 
 echo "done"
 exit $retval
