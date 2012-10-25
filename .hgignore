@@ -3,6 +3,8 @@
 :2eDS_Store
 
 syntax: regexp
-^lf_update
-^reinit.sh
+^lf_update$
+^reinit.sh$
+^config$
+^tmp/
 
