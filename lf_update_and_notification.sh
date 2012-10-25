@@ -3,7 +3,8 @@
 # has to be executed as apache/www-data
 
 # read configuration
-source /opt/pirate_feedback/liquid_feedback_core/config
+path=$( dirname $( readlink -f $( dirname $0 ) ) )
+source $path/liquid_feedback_core/config
 
 # lf_update
 $path/liquid_feedback_core/lf_update dbname=$dbname

@@ -3,7 +3,8 @@
 # This script is intended to be run by cron as root.
 
 # read configuration
-source /opt/pirate_feedback/liquid_feedback_core/config
+path=$( dirname $( readlink -f $( dirname $0 ) ) )
+source $path/liquid_feedback_core/config
 
 if [ ! -e $member_import_csvfile ]
 then

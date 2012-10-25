@@ -3,7 +3,8 @@
 # must be run as root
 
 # read configuration
-source /opt/pirate_feedback/liquid_feedback_core/config
+path=$( dirname $( readlink -f $( dirname $0 ) ) )
+source $path/liquid_feedback_core/config
 
 echo
 echo "==== /etc/init.d/lf_updated status"

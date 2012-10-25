@@ -3,7 +3,8 @@
 # will be started by /etc/init.d/lf_notification
 
 # read configuration
-source /opt/pirate_feedback/liquid_feedback_core/config
+path=$( dirname $( readlink -f $( dirname $0 ) ) )
+source $path/liquid_feedback_core/config
 
 PIDFILE="/var/run/lf_notification.pid"
 PID=$$

@@ -3,7 +3,8 @@
 # should be run by cron as user apache/www-data
 
 # read configuration
-source /opt/pirate_feedback/liquid_feedback_core/config
+path=$( dirname $( readlink -f $( dirname $0 ) ) )
+source $path/liquid_feedback_core/config
 
 echo "Dumping database \"$dbname\" to \"$backupfile\" ..."
 if (pg_dump "$dbname" > "$backupfile")
