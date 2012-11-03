@@ -2533,6 +2533,15 @@ CREATE FUNCTION "delegation_chain"
       "output_row"."scope_in"      := NULL;
       "output_row"."scope_out"     := NULL;
 
+      -- member_valid
+      "output_row"."member_valid" := EXISTS (
+        SELECT NULL FROM "member" JOIN "privilege"
+        ON "privilege"."member_id" = "member_id_p"
+        AND "privilege"."unit_id" = "unit_id_v"
+        WHERE "id" = "output_row"."member_id"
+        AND "member"."active" AND "privilege"."voting_right"
+      );
+
       -- participation
       IF "scope_v" = 'unit' THEN
         "output_row"."participation" := FALSE;
