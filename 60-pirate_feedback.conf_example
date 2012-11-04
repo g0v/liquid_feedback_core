@@ -19,8 +19,9 @@ $HTTP["scheme"] != "https" {
 cgi.assign += ( ".lua" => "/usr/bin/lua5.1" )
 
 alias.url += (
-  "/fastpath/" => "/opt/pirate_feedback/liquid_feedback_frontend/fastpath/",
-  "/static/"   => "/opt/pirate_feedback/liquid_feedback_frontend/static/"
+  "/fastpath/"   => "/opt/pirate_feedback/liquid_feedback_frontend/fastpath/",
+  "/static/"     => "/opt/pirate_feedback/liquid_feedback_frontend/static/",
+  "/favicon.ico" => "/opt/pirate_feedback/liquid_feedback_frontend/static/favicon.ico"
 )
 
 # Configure environment
@@ -35,6 +36,7 @@ url.rewrite-once += (
   # do not rewrite static URLs
   "^/fastpath/(.*)$" => "/fastpath/$1",
   "^/static/(.*)$"   => "/static/$1",
+  "^/favicon.ico$"   => "/favicon.ico",
   # base URL
   "^/(\?(.*))?$" => "/webmcp-wrapper.lua?_webmcp_urldepth=0&_webmcp_module=index&_webmcp_view=index&$2",
   # module base URLs
