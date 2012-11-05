@@ -3505,13 +3505,11 @@ CREATE FUNCTION "close_voting"("issue_id_p" "issue"."id"%TYPE)
           -- ingore members, who are direct voters
           SELECT NULL FROM "direct_voter"
           WHERE "issue_id" = "issue_id_p"
-          AND "event" = 'periodic'
           AND "member_id" = "issue_delegation_row"."truster_id"
         ) AND NOT EXISTS (
           -- ignore members, which are already counted; thus lower preference and scope delegations are not counted again
           SELECT NULL FROM "delegating_voter"
           WHERE "issue_id" = "issue_id_p"
-          AND "event" = 'periodic'
           AND "member_id" = "issue_delegation_row"."truster_id"
         ) THEN
           INSERT INTO "delegating_voter" (
