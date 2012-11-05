@@ -930,7 +930,7 @@ CREATE TABLE "direct_population_snapshot" (
         "issue_id"              INT4            REFERENCES "issue" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
         "event"                 "snapshot_event",
         "member_id"             INT4            REFERENCES "member" ("id") ON DELETE RESTRICT ON UPDATE RESTRICT,
-        "weight"                INT4 );
+        "weight"                INT4            NOT NULL DEFAULT 1 );
 CREATE INDEX "direct_population_snapshot_member_id_idx" ON "direct_population_snapshot" ("member_id");
 
 COMMENT ON TABLE "direct_population_snapshot" IS 'Snapshot of active members having either a "membership" in the "area" or an "interest" in the "issue"';
@@ -960,7 +960,7 @@ CREATE TABLE "direct_interest_snapshot" (
         "issue_id"              INT4            REFERENCES "issue" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
         "event"                 "snapshot_event",
         "member_id"             INT4            REFERENCES "member" ("id") ON DELETE RESTRICT ON UPDATE RESTRICT,
-        "weight"                INT4 );
+        "weight"                INT4            NOT NULL DEFAULT 1 );
 CREATE INDEX "direct_interest_snapshot_member_id_idx" ON "direct_interest_snapshot" ("member_id");
 
 COMMENT ON TABLE "direct_interest_snapshot" IS 'Snapshot of active members having an "interest" in the "issue"';
@@ -971,7 +971,7 @@ COMMENT ON COLUMN "direct_interest_snapshot"."weight"           IS 'Weight of me
 
 CREATE TABLE "delegating_interest_snapshot" (
         PRIMARY KEY ("issue_id", "event", "member_id"),
-        "issue_id"         INT4                 REFERENCES "issue" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+        "issue_id"              INT4            REFERENCES "issue" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
         "event"                "snapshot_event",
         "member_id"             INT4            REFERENCES "member" ("id") ON DELETE RESTRICT ON UPDATE RESTRICT,
         "scope"              "delegation_scope" NOT NULL,
@@ -1020,7 +1020,7 @@ CREATE TABLE "direct_voter" (
         PRIMARY KEY ("issue_id", "member_id"),
         "issue_id"              INT4            REFERENCES "issue" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
         "member_id"             INT4            REFERENCES "member" ("id") ON DELETE RESTRICT ON UPDATE RESTRICT,
-        "weight"                INT4 );
+        "weight"                INT4            NOT NULL DEFAULT 1 );
 CREATE INDEX "direct_voter_member_id_idx" ON "direct_voter" ("member_id");
 
 COMMENT ON TABLE "direct_voter" IS 'Members having directly voted for/against initiatives of an issue; Frontends must ensure that no voters are added or removed to/from this table when the issue has been closed.';
@@ -2941,57 +2941,6 @@ COMMENT ON FUNCTION "calculate_member_counts"() IS 'Updates "member_count" table
 -- Calculation of snapshots --
 ------------------------------
 
-CREATE FUNCTION "weight_of_added_delegations_for_population_snapshot"
-  ( "issue_id_p"            "issue"."id"%TYPE,
-    "member_id_p"           "member"."id"%TYPE )
-  RETURNS "direct_population_snapshot"."weight"%TYPE
-  LANGUAGE 'plpgsql' VOLATILE AS $$
-    DECLARE
-      "issue_delegation_row"  "issue_delegation"%ROWTYPE;
-      "weight_v"              INT4;
-    BEGIN
-      "weight_v" := 0;
-      FOR "issue_delegation_row" IN
-        SELECT * FROM "issue_delegation"
-        WHERE "trustee_id" = "member_id_p"
-        AND "issue_id" = "issue_id_p"
-      LOOP
-        IF NOT EXISTS (
-          SELECT NULL FROM "direct_population_snapshot"
-          WHERE "issue_id" = "issue_id_p"
-          AND "event" = 'periodic'
-          AND "member_id" = "issue_delegation_row"."truster_id"
-        ) AND NOT EXISTS (
-          SELECT NULL FROM "delegating_population_snapshot"
-          WHERE "issue_id" = "issue_id_p"
-          AND "event" = 'periodic'
-          AND "member_id" = "issue_delegation_row"."truster_id"
-        ) THEN
-          INSERT INTO "delegating_population_snapshot" (
-              "issue_id",
-              "event",
-              "member_id",
-              "scope",
-              "delegate_member_id"
-            ) VALUES (
-              "issue_id_p",
-              'periodic',
-              "issue_delegation_row"."truster_id",
-              "issue_delegation_row"."scope",
-              "member_id_p"
-            );
-          "weight_v" := "weight_v" + 1;
-        END IF;
-      END LOOP;
-      RETURN "weight_v";
-    END;
-  $$;
-
-COMMENT ON FUNCTION "weight_of_added_delegations_for_population_snapshot"
-  ( "issue"."id"%TYPE,
-    "member"."id"%TYPE )
-  IS 'Helper function for "create_population_snapshot" function';
-
 
 CREATE FUNCTION "create_population_snapshot"
   ( "issue_id_p" "issue"."id"%TYPE )
@@ -2999,13 +2948,17 @@ CREATE FUNCTION "create_population_snapshot"
   LANGUAGE 'plpgsql' VOLATILE AS $$
     DECLARE
       "member_id_v" "member"."id"%TYPE;
+      "issue_delegation_row" "issue_delegation"%ROWTYPE;
     BEGIN
+
       DELETE FROM "direct_population_snapshot"
         WHERE "issue_id" = "issue_id_p"
         AND "event" = 'periodic';
       DELETE FROM "delegating_population_snapshot"
         WHERE "issue_id" = "issue_id_p"
         AND "event" = 'periodic';
+
+      -- directly subscribed members
       INSERT INTO "direct_population_snapshot"
         ("issue_id", "event", "member_id")
         SELECT
@@ -3035,57 +2988,27 @@ CREATE FUNCTION "create_population_snapshot"
           AND "privilege"."member_id" = "member"."id"
         WHERE "issue"."id" = "issue_id_p"
         AND "member"."active" AND "privilege"."voting_right";
-      FOR "member_id_v" IN
-        SELECT "member_id" FROM "direct_population_snapshot"
-        WHERE "issue_id" = "issue_id_p"
-        AND "event" = 'periodic'
-      LOOP
-        UPDATE "direct_population_snapshot" SET
-          "weight" = 1 +
-            "weight_of_added_delegations_for_population_snapshot"(
-              "issue_id_p",
-              "member_id_v"
-            )
-          WHERE "issue_id" = "issue_id_p"
-          AND "event" = 'periodic'
-          AND "member_id" = "member_id_v";
-      END LOOP;
-      RETURN;
-    END;
-  $$;
 
-COMMENT ON FUNCTION "create_population_snapshot"
-  ( "issue"."id"%TYPE )
-  IS 'This function creates a new ''periodic'' population snapshot for the given issue. It does neither lock any tables, nor updates precalculated values in other tables.';
-
-
-CREATE FUNCTION "weight_of_added_delegations_for_interest_snapshot"
-  ( "issue_id_p"            "issue"."id"%TYPE,
-    "member_id_p"           "member"."id"%TYPE )
-  RETURNS "direct_interest_snapshot"."weight"%TYPE
-  LANGUAGE 'plpgsql' VOLATILE AS $$
-    DECLARE
-      "issue_delegation_row"  "issue_delegation"%ROWTYPE;
-      "weight_v"              INT4;
-    BEGIN
-      "weight_v" := 0;
-      FOR "issue_delegation_row" IN
-        SELECT * FROM "issue_delegation"
-        WHERE "trustee_id" = "member_id_p"
-        AND "issue_id" = "issue_id_p"
-      LOOP
-        IF NOT EXISTS (
-          SELECT NULL FROM "direct_interest_snapshot"
+        -- by delegation subscribed members
+        FOR "issue_delegation_row" IN
+          -- get all delegations/trusters, which delegate this issue, ordered by scope and preference
+          SELECT * FROM "issue_delegation"
           WHERE "issue_id" = "issue_id_p"
-          AND "event" = 'periodic'
-          AND "member_id" = "issue_delegation_row"."truster_id"
-        ) AND NOT EXISTS (
-          SELECT NULL FROM "delegating_interest_snapshot"
-          WHERE "issue_id" = "issue_id_p"
-          AND "event" = 'periodic'
-          AND "member_id" = "issue_delegation_row"."truster_id"
-        ) THEN
-           INSERT INTO "delegating_interest_snapshot" (
+        LOOP
+          IF NOT EXISTS (
+            -- ingore members, who are directly subscribed
+            SELECT NULL FROM "direct_population_snapshot"
+            WHERE "issue_id" = "issue_id_p"
+            AND "event" = 'periodic'
+            AND "member_id" = "issue_delegation_row"."truster_id"
+          ) AND NOT EXISTS (
+            -- ignore members, which are already counted; thus lower preference and scope delegations are not counted again
+            SELECT NULL FROM "delegating_population_snapshot"
+            WHERE "issue_id" = "issue_id_p"
+            AND "event" = 'periodic'
+            AND "member_id" = "issue_delegation_row"."truster_id"
+          ) THEN
+            INSERT INTO "delegating_population_snapshot" (
               "issue_id",
               "event",
               "member_id",
@@ -3096,19 +3019,23 @@ CREATE FUNCTION "weight_of_added_delegations_for_interest_snapshot"
               'periodic',
               "issue_delegation_row"."truster_id",
               "issue_delegation_row"."scope",
-              "member_id_p"
+              "issue_delegation_row"."trustee_id"
             );
-          "weight_v" := "weight_v" + 1;
-        END IF;
-      END LOOP;
-      RETURN "weight_v";
+            -- increase weight
+            UPDATE "direct_population_snapshot" SET "weight" = "weight" + 1
+            WHERE "issue_id" = "issue_id_p"
+            AND "event" = 'periodic'
+            AND "member_id" = "issue_delegation_row"."trustee_id";
+          END IF;
+        END LOOP;
+
+      RETURN;
     END;
   $$;
 
-COMMENT ON FUNCTION "weight_of_added_delegations_for_interest_snapshot"
-  ( "issue"."id"%TYPE,
-    "member"."id"%TYPE )
-  IS 'Helper function for "create_interest_snapshot" function';
+COMMENT ON FUNCTION "create_population_snapshot"
+  ( "issue"."id"%TYPE )
+  IS 'This function creates a new ''periodic'' population snapshot for the given issue. It does neither lock any tables, nor updates precalculated values in other tables.';
 
 
 CREATE FUNCTION "create_interest_snapshot"
@@ -3117,7 +3044,9 @@ CREATE FUNCTION "create_interest_snapshot"
   LANGUAGE 'plpgsql' VOLATILE AS $$
     DECLARE
       "member_id_v" "member"."id"%TYPE;
+      "issue_delegation_row" "issue_delegation"%ROWTYPE;
     BEGIN
+
       DELETE FROM "direct_interest_snapshot"
         WHERE "issue_id" = "issue_id_p"
         AND "event" = 'periodic';
@@ -3127,6 +3056,8 @@ CREATE FUNCTION "create_interest_snapshot"
       DELETE FROM "direct_supporter_snapshot"
         WHERE "issue_id" = "issue_id_p"
         AND "event" = 'periodic';
+
+      -- directy interested members
       INSERT INTO "direct_interest_snapshot"
         ("issue_id", "event", "member_id")
         SELECT
@@ -3142,21 +3073,48 @@ CREATE FUNCTION "create_interest_snapshot"
           AND "privilege"."member_id" = "member"."id"
         WHERE "issue"."id" = "issue_id_p"
         AND "member"."active" AND "privilege"."voting_right";
-      FOR "member_id_v" IN
-        SELECT "member_id" FROM "direct_interest_snapshot"
+
+      -- by delegation interested members
+      FOR "issue_delegation_row" IN
+        -- get all delegations/trusters, which delegate this issue, ordered by scope and preference
+        SELECT * FROM "issue_delegation"
         WHERE "issue_id" = "issue_id_p"
-        AND "event" = 'periodic'
       LOOP
-        UPDATE "direct_interest_snapshot" SET
-          "weight" = 1 +
-            "weight_of_added_delegations_for_interest_snapshot"(
-              "issue_id_p",
-              "member_id_v"
-            )
+        IF NOT EXISTS (
+          -- ingore members, who are directly interested
+          SELECT NULL FROM "direct_interest_snapshot"
           WHERE "issue_id" = "issue_id_p"
           AND "event" = 'periodic'
-          AND "member_id" = "member_id_v";
+          AND "member_id" = "issue_delegation_row"."truster_id"
+        ) AND NOT EXISTS (
+          -- ignore members, which are already counted; thus lower preference and scope delegations are not counted again
+          SELECT NULL FROM "delegating_interest_snapshot"
+          WHERE "issue_id" = "issue_id_p"
+          AND "event" = 'periodic'
+          AND "member_id" = "issue_delegation_row"."truster_id"
+        ) THEN
+          INSERT INTO "delegating_interest_snapshot" (
+            "issue_id",
+            "event",
+            "member_id",
+            "scope",
+            "delegate_member_id"
+          ) VALUES (
+            "issue_id_p",
+            'periodic',
+            "issue_delegation_row"."truster_id",
+            "issue_delegation_row"."scope",
+            "issue_delegation_row"."trustee_id"
+          );
+          -- increase weight
+          UPDATE "direct_interest_snapshot" SET "weight" = "weight" + 1
+          WHERE "issue_id" = "issue_id_p"
+          AND "event" = 'periodic'
+          AND "member_id" = "issue_delegation_row"."trustee_id";
+        END IF;
       END LOOP;
+
+      -- directly supporting members
       INSERT INTO "direct_supporter_snapshot"
         ( "issue_id", "initiative_id", "event", "member_id",
           "draft_id", "informed", "satisfied" )
@@ -3182,6 +3140,7 @@ CREATE FUNCTION "create_interest_snapshot"
         AND "initiative"."issue_id" = "direct_interest_snapshot"."issue_id"
         AND "event" = 'periodic'
         WHERE "initiative"."issue_id" = "issue_id_p";
+
       RETURN;
     END;
   $$;
@@ -3411,6 +3370,7 @@ COMMENT ON FUNCTION "set_snapshot_event"
 -- Freezing issues --
 ---------------------
 
+
 CREATE FUNCTION "freeze_after_snapshot"
   ( "issue_id_p" "issue"."id"%TYPE )
   RETURNS VOID
@@ -3498,86 +3458,6 @@ COMMENT ON FUNCTION "manual_freeze"
 -----------------------
 
 
-CREATE FUNCTION "weight_of_added_vote_delegations"
-  ( "issue_id_p"            "issue"."id"%TYPE,
-    "member_id_p"           "member"."id"%TYPE )
-  RETURNS "direct_voter"."weight"%TYPE
-  LANGUAGE 'plpgsql' VOLATILE AS $$
-    DECLARE
-      "issue_delegation_row"  "issue_delegation"%ROWTYPE;
-      "weight_v"              INT4;
-    BEGIN
-      "weight_v" := 0;
-      -- loop through all issue delegations which delegate to the current direct voter
-      FOR "issue_delegation_row" IN
-        SELECT * FROM "issue_delegation"
-        WHERE "trustee_id" = "member_id_p"
-        AND "issue_id" = "issue_id_p"
-      LOOP
-        IF NOT EXISTS (
-          -- skip if the delegating member voted directly
-          SELECT NULL FROM "direct_voter"
-          WHERE "member_id" = "issue_delegation_row"."truster_id"
-          AND "issue_id" = "issue_id_p"
-        ) AND NOT EXISTS (
-          -- skip if the record exists already
-          SELECT NULL FROM "delegating_voter"
-          WHERE "member_id" = "issue_delegation_row"."truster_id"
-          AND "issue_id" = "issue_id_p"
-        ) THEN
-          INSERT INTO "delegating_voter" (
-            "issue_id",
-            "member_id",
-            "scope",
-            "delegate_member_id"
-          ) VALUES (
-            "issue_id_p",
-            "issue_delegation_row"."truster_id",
-            "issue_delegation_row"."scope",
-            "member_id_p" -- the direct voter
-          );
-          "weight_v" := "weight_v" + 1;
-        END IF;
-      END LOOP;
-      RETURN "weight_v";
-    END;
-  $$;
-
-COMMENT ON FUNCTION "weight_of_added_vote_delegations"
-  ( "issue"."id"%TYPE,
-    "member"."id"%TYPE )
-  IS 'Helper function for "add_vote_delegations" function';
-
-
-CREATE FUNCTION "add_vote_delegations"
-  ( "issue_id_p" "issue"."id"%TYPE )
-  RETURNS VOID
-  LANGUAGE 'plpgsql' VOLATILE AS $$
-    DECLARE
-      "member_id_v" "member"."id"%TYPE;
-    BEGIN
-      -- calculate weight for all direct voters
-      FOR "member_id_v" IN
-        SELECT "member_id" FROM "direct_voter"
-        WHERE "issue_id" = "issue_id_p"
-      LOOP
-        UPDATE "direct_voter" SET
-          "weight" = "weight" + "weight_of_added_vote_delegations"(
-            "issue_id_p",
-            "member_id_v"
-          )
-          WHERE "member_id" = "member_id_v"
-          AND "issue_id" = "issue_id_p";
-      END LOOP;
-      RETURN;
-    END;
-  $$;
-
-COMMENT ON FUNCTION "add_vote_delegations"
-  ( "issue_id_p" "issue"."id"%TYPE )
-  IS 'Helper function for "close_voting" function';
-
-
 CREATE FUNCTION "close_voting"("issue_id_p" "issue"."id"%TYPE)
   RETURNS VOID
   LANGUAGE 'plpgsql' VOLATILE AS $$
@@ -3585,18 +3465,19 @@ CREATE FUNCTION "close_voting"("issue_id_p" "issue"."id"%TYPE)
       "area_id_v"   "area"."id"%TYPE;
       "unit_id_v"   "unit"."id"%TYPE;
       "member_id_v" "member"."id"%TYPE;
+      "issue_delegation_row" "issue_delegation"%ROWTYPE;
     BEGIN
       PERFORM "lock_issue"("issue_id_p");
       SELECT "area_id" INTO "area_id_v" FROM "issue" WHERE "id" = "issue_id_p";
       SELECT "unit_id" INTO "unit_id_v" FROM "area"  WHERE "id" = "area_id_v";
+
       -- delete delegating votes (in cases of manual reset of issue state):
       DELETE FROM "delegating_voter"
         WHERE "issue_id" = "issue_id_p";
       -- delete votes from non-privileged voters:
       DELETE FROM "direct_voter"
         USING (
-          SELECT
-            "direct_voter"."member_id"
+          SELECT "direct_voter"."member_id"
           FROM "direct_voter"
           JOIN "member" ON "direct_voter"."member_id" = "member"."id"
           LEFT JOIN "privilege"
@@ -3610,10 +3491,47 @@ CREATE FUNCTION "close_voting"("issue_id_p" "issue"."id"%TYPE)
         ) AS "subquery"
         WHERE "direct_voter"."issue_id" = "issue_id_p"
         AND "direct_voter"."member_id" = "subquery"."member_id";
+
       -- consider delegations:
       UPDATE "direct_voter" SET "weight" = 1
         WHERE "issue_id" = "issue_id_p";
-      PERFORM "add_vote_delegations"("issue_id_p");
+
+      FOR "issue_delegation_row" IN
+        -- get all delegations/trusters, which delegate this issue, ordered by scope and preference
+        SELECT * FROM "issue_delegation"
+        WHERE "issue_id" = "issue_id_p"
+      LOOP
+        IF NOT EXISTS (
+          -- ingore members, who are direct voters
+          SELECT NULL FROM "direct_voter"
+          WHERE "issue_id" = "issue_id_p"
+          AND "event" = 'periodic'
+          AND "member_id" = "issue_delegation_row"."truster_id"
+        ) AND NOT EXISTS (
+          -- ignore members, which are already counted; thus lower preference and scope delegations are not counted again
+          SELECT NULL FROM "delegating_voter"
+          WHERE "issue_id" = "issue_id_p"
+          AND "event" = 'periodic'
+          AND "member_id" = "issue_delegation_row"."truster_id"
+        ) THEN
+          INSERT INTO "delegating_voter" (
+            "issue_id",
+            "member_id",
+            "scope",
+            "delegate_member_id"
+          ) VALUES (
+            "issue_id_p",
+            "issue_delegation_row"."truster_id",
+            "issue_delegation_row"."scope",
+            "issue_delegation_row"."trustee_id"
+          );
+          -- increase weight
+          UPDATE "direct_voter" SET "weight" = "weight" + 1
+          WHERE "issue_id" = "issue_id_p"
+          AND "member_id" = "issue_delegation_row"."trustee_id";
+        END IF;
+      END LOOP;
+
       -- set voter count and mark issue as being calculated:
       UPDATE "issue" SET
         "state"  = 'calculation',
