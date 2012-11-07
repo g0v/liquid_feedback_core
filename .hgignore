@@ -1,8 +1,6 @@
-.+~
-.AppleDouble
-:2eDS_Store
-
-syntax: regexp
+~$
+\.AppleDouble
+:2e
 ^lf_update$
 ^reinit.sh$
 ^config$
