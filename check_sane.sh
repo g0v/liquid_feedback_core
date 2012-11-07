@@ -26,6 +26,9 @@ tail /var/log/pirate_feedback/notification.log
 echo
 echo "==== tail /var/log/syslog"
 tail /var/log/syslog
+echo
+echo "==== tail /var/log/messages"
+tail /var/log/messages
 
 echo
 echo "==== ls -l ` dirname $exportfile `"
