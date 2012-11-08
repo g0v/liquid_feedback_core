@@ -2,7 +2,6 @@
 \.AppleDouble
 :2e
 ^lf_update$
-^reinit.sh$
 ^config$
 ^tmp/
 
