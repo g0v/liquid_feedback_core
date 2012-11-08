@@ -2995,7 +2995,13 @@ CREATE FUNCTION "create_population_snapshot"
           SELECT * FROM "issue_delegation"
           WHERE "issue_id" = "issue_id_p"
         LOOP
-          IF NOT EXISTS (
+          IF EXISTS (
+            -- count only delegations to participating members
+            SELECT NULL FROM "direct_population_snapshot"
+            WHERE "issue_id" = "issue_id_p"
+            AND "event" = 'periodic'
+            AND "member_id" = "issue_delegation_row"."trustee_id"
+          ) AND NOT EXISTS (
             -- ingore members, who are directly subscribed
             SELECT NULL FROM "direct_population_snapshot"
             WHERE "issue_id" = "issue_id_p"
@@ -3080,7 +3086,13 @@ CREATE FUNCTION "create_interest_snapshot"
         SELECT * FROM "issue_delegation"
         WHERE "issue_id" = "issue_id_p"
       LOOP
-        IF NOT EXISTS (
+        IF EXISTS (
+          -- count only delegations to participating members
+          SELECT NULL FROM "direct_interest_snapshot"
+          WHERE "issue_id" = "issue_id_p"
+          AND "event" = 'periodic'
+          AND "member_id" = "issue_delegation_row"."trustee_id"
+        ) AND NOT EXISTS (
           -- ingore members, who are directly interested
           SELECT NULL FROM "direct_interest_snapshot"
           WHERE "issue_id" = "issue_id_p"
@@ -3501,7 +3513,12 @@ CREATE FUNCTION "close_voting"("issue_id_p" "issue"."id"%TYPE)
         SELECT * FROM "issue_delegation"
         WHERE "issue_id" = "issue_id_p"
       LOOP
-        IF NOT EXISTS (
+        IF EXISTS (
+          -- count only delegations to participating members
+          SELECT NULL FROM "direct_voter"
+          WHERE "issue_id" = "issue_id_p"
+          AND "member_id" = "issue_delegation_row"."trustee_id"
+        ) AND NOT EXISTS (
           -- ingore members, who are direct voters
           SELECT NULL FROM "direct_voter"
           WHERE "issue_id" = "issue_id_p"
