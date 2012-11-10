@@ -433,7 +433,7 @@ COMMENT ON TABLE "area" IS 'Subject areas';
 
 COMMENT ON COLUMN "area"."active"              IS 'TRUE means new issues can be created in this area';
 COMMENT ON COLUMN "area"."direct_member_count" IS 'Number of active members of that area (ignoring their weight), as calculated from view "area_member_count"';
-COMMENT ON COLUMN "area"."member_weight"       IS 'Same as "direct_member_count" but respecting delegations';
+COMMENT ON COLUMN "area"."member_weight"       IS 'Obsolete';
 
 
 CREATE TABLE "area_setting" (
@@ -1843,67 +1843,6 @@ CREATE VIEW "issue_delegation" AS
 COMMENT ON VIEW "issue_delegation" IS 'Issue delegations where trusters are active and have voting right';
 
 
-CREATE FUNCTION "membership_weight_with_skipping"
-  ( "area_id_p"         "area"."id"%TYPE,
-    "member_id_p"       "member"."id"%TYPE,
-    "skip_member_ids_p" INT4[] )  -- "member"."id"%TYPE[]
-  RETURNS INT4
-  LANGUAGE 'plpgsql' STABLE AS $$
-    DECLARE
-      "sum_v"          INT4;
-      "delegation_row" "area_delegation"%ROWTYPE;
-    BEGIN
-      "sum_v" := 1;
-      FOR "delegation_row" IN
-        SELECT "area_delegation".*
-        FROM "area_delegation" LEFT JOIN "membership"
-        ON "membership"."area_id" = "area_id_p"
-        AND "membership"."member_id" = "area_delegation"."truster_id"
-        WHERE "area_delegation"."area_id" = "area_id_p"
-        AND "area_delegation"."trustee_id" = "member_id_p"
-        AND "membership"."member_id" ISNULL
-      LOOP
-        IF NOT
-          "skip_member_ids_p" @> ARRAY["delegation_row"."truster_id"]
-        THEN
-          "sum_v" := "sum_v" + "membership_weight_with_skipping"(
-            "area_id_p",
-            "delegation_row"."truster_id",
-            "skip_member_ids_p" || "delegation_row"."truster_id"
-          );
-        END IF;
-      END LOOP;
-      RETURN "sum_v";
-    END;
-  $$;
-
-COMMENT ON FUNCTION "membership_weight_with_skipping"
-  ( "area"."id"%TYPE,
-    "member"."id"%TYPE,
-    INT4[] )
-  IS 'Helper function for "membership_weight" function';
-
-
-CREATE FUNCTION "membership_weight"
-  ( "area_id_p"         "area"."id"%TYPE,
-    "member_id_p"       "member"."id"%TYPE )  -- "member"."id"%TYPE[]
-  RETURNS INT4
-  LANGUAGE 'plpgsql' STABLE AS $$
-    BEGIN
-      RETURN "membership_weight_with_skipping"(
-        "area_id_p",
-        "member_id_p",
-        ARRAY["member_id_p"]
-      );
-    END;
-  $$;
-
-COMMENT ON FUNCTION "membership_weight"
-  ( "area"."id"%TYPE,
-    "member"."id"%TYPE )
-  IS 'Calculates the potential voting weight of a member in a given area';
-
-
 CREATE VIEW "member_count_view" AS
   SELECT count(1) AS "total_count" FROM "member" WHERE "active";
 
@@ -1929,14 +1868,7 @@ COMMENT ON VIEW "unit_member_count" IS 'View used to update "member_count" colum
 CREATE VIEW "area_member_count" AS
   SELECT
     "area"."id" AS "area_id",
-    count("member"."id") AS "direct_member_count",
-    coalesce(
-      sum(
-        CASE WHEN "member"."id" NOTNULL THEN
-          "membership_weight"("area"."id", "member"."id")
-        ELSE 0 END
-      )
-    ) AS "member_weight"
+    count("member"."id") AS "direct_member_count"
   FROM "area"
   LEFT JOIN "membership"
   ON "area"."id" = "membership"."area_id"
@@ -1949,7 +1881,7 @@ CREATE VIEW "area_member_count" AS
   AND "member"."active"
   GROUP BY "area"."id";
 
-COMMENT ON VIEW "area_member_count" IS 'View used to update "direct_member_count" and "member_weight" columns of table "area"';
+COMMENT ON VIEW "area_member_count" IS 'View used to update "direct_member_count" columns of table "area"';
 
 
 CREATE VIEW "opening_draft" AS
@@ -2924,16 +2856,14 @@ CREATE FUNCTION "calculate_member_counts"()
       UPDATE "unit" SET "member_count" = "view"."member_count"
         FROM "unit_member_count" AS "view"
         WHERE "view"."unit_id" = "unit"."id";
-      UPDATE "area" SET
-        "direct_member_count" = "view"."direct_member_count",
-        "member_weight"       = "view"."member_weight"
+      UPDATE "area" SET "direct_member_count" = "view"."direct_member_count"
         FROM "area_member_count" AS "view"
         WHERE "view"."area_id" = "area"."id";
       RETURN;
     END;
   $$;
 
-COMMENT ON FUNCTION "calculate_member_counts"() IS 'Updates "member_count" table and "member_count" column of table "area" by materializing data from views "member_count_view" and "area_member_count"';
+COMMENT ON FUNCTION "calculate_member_counts"() IS 'Updates "member_count" table, "member_count" column of table "area" and "member_count" column of table "unit" by materializing data from views "member_count_view", "area_member_count" and "unit_member_count"';
 
 
 
