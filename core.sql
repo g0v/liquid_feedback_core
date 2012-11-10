@@ -3018,7 +3018,7 @@ CREATE FUNCTION "create_interest_snapshot"
       LOOP
         IF EXISTS (
           -- count only delegations to participating members
-          SELECT NULL FROM "direct_population_snapshot"
+          SELECT NULL FROM "direct_interest_snapshot"
           WHERE "issue_id" = "issue_id_p"
           AND "event" = 'periodic'
           AND "member_id" = "issue_delegation_row"."trustee_id"
