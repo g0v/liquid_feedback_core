@@ -2350,6 +2350,8 @@ CREATE FUNCTION "delegation_chain_for_closed_issue"
       "output_row"."member_valid"  := TRUE;
       "output_row"."participation" := FALSE;
       "output_row"."overridden"    := FALSE;
+      "output_row"."scope_in"      := NULL;
+      "output_row"."scope_out"     := NULL;
 
       -- the member voted itsself
       SELECT INTO "direct_voter_row" * FROM "direct_voter"
@@ -2357,7 +2359,6 @@ CREATE FUNCTION "delegation_chain_for_closed_issue"
         AND "member_id" = "member_id_p";
       IF "direct_voter_row"."member_id" NOTNULL THEN
         "output_row"."participation" := TRUE;
-        "output_row"."scope_out"     := NULL;
         RETURN NEXT "output_row"; -- the member itsself
         RETURN;
       END IF;
@@ -2369,18 +2370,16 @@ CREATE FUNCTION "delegation_chain_for_closed_issue"
       IF "delegating_voter_row"."member_id" ISNULL THEN
         RETURN;
       END IF;
-      "output_row"."scope_out" := "delegating_voter_row"."scope";
       RETURN NEXT "output_row"; -- the delegating member
       -- get the direct voter
-      "output_row"."index"     := 1;
-      "output_row"."member_id" := "delegating_voter_row"."delegate_member_id";
-      "output_row"."scope_in"  := "output_row"."scope_out";
       SELECT INTO "direct_voter_row" * FROM "direct_voter"
         WHERE "issue_id" = "issue_id_p"
         AND "member_id" = "delegating_voter_row"."delegate_member_id";
       IF "direct_voter_row"."member_id" NOTNULL THEN
+        "output_row"."index"         := 1;
+        "output_row"."member_id"     := "delegating_voter_row"."delegate_member_id";
         "output_row"."participation" := TRUE;
-        "output_row"."scope_out"     := NULL;
+        "output_row"."scope_out"     := "delegating_voter_row"."scope";
         RETURN NEXT "output_row"; -- the direct voter
         RETURN;
       END IF;
@@ -2460,7 +2459,6 @@ CREATE FUNCTION "delegation_chain"
       -- first row is the member itself
       "output_row"."index"         := 0;
       "output_row"."member_id"     := "member_id_p";
-      "output_row"."member_valid"  := TRUE;
       "output_row"."overridden"    := FALSE;
       "output_row"."scope_in"      := NULL;
       "output_row"."scope_out"     := NULL;
