@@ -2329,7 +2329,7 @@ CREATE TYPE "delegation_chain_row" AS (
 COMMENT ON TYPE "delegation_chain_row" IS 'Type of rows returned by "delegation_chain" function';
 
 COMMENT ON COLUMN "delegation_chain_row"."index"         IS 'Index starting with 0 and counting up';
-COMMENT ON COLUMN "delegation_chain_row"."participation" IS 'In case of delegation chains for issues: interest, for areas: membership, for global delegation chains: always null';
+COMMENT ON COLUMN "delegation_chain_row"."participation" IS 'In case of delegation chains for issues: interest, for areas and units always null';
 COMMENT ON COLUMN "delegation_chain_row"."overridden"    IS 'True, if an entry with lower index has "participation" set to true';
 COMMENT ON COLUMN "delegation_chain_row"."scope_in"      IS 'Scope of used incoming delegation';
 COMMENT ON COLUMN "delegation_chain_row"."scope_out"     IS 'Scope of used outgoing delegation';
@@ -2475,24 +2475,14 @@ CREATE FUNCTION "delegation_chain"
       );
 
       -- participation
-      IF "scope_v" = 'unit' THEN
-        "output_row"."participation" := FALSE;
-      ELSIF "scope_v" = 'area' THEN
+      IF "scope_v" = 'issue' AND "issue_row"."fully_frozen" ISNULL THEN
         "output_row"."participation" := EXISTS (
-          SELECT NULL FROM "membership"
-          WHERE "area_id" = "area_id_p"
+          SELECT NULL FROM "interest"
+          WHERE "issue_id" = "issue_id_p"
           AND "member_id" = "member_id_p"
         );
-      ELSIF "scope_v" = 'issue' THEN
-        IF "issue_row"."fully_frozen" ISNULL THEN
-          "output_row"."participation" := EXISTS (
-            SELECT NULL FROM "interest"
-            WHERE "issue_id" = "issue_id_p"
-            AND "member_id" = "member_id_p"
-          );
-        ELSE
-          "output_row"."participation" := NULL;
-        END IF;
+      ELSE
+        "output_row"."participation" := NULL;
       END IF;
 
       "output_rows" := "output_rows" || "output_row";
@@ -2545,16 +2535,8 @@ CREATE FUNCTION "delegation_chain"
         );
 
         -- participation
-        IF "output_row"."member_valid" THEN
-          IF "scope_v" = 'unit' THEN
-            -- nothing
-          ELSIF "scope_v" = 'area' THEN
-            "output_row"."participation" := EXISTS (
-              SELECT NULL FROM "membership"
-              WHERE "area_id" = "area_id_p"
-              AND "member_id" = "output_row"."member_id"
-            );
-          ELSIF "scope_v" = 'issue' THEN
+        IF "scope_v" = 'issue' THEN
+          IF "output_row"."member_valid" THEN
             IF "issue_row"."fully_frozen" ISNULL THEN
               "output_row"."participation" := EXISTS (
                 SELECT NULL FROM "interest"
@@ -2564,9 +2546,11 @@ CREATE FUNCTION "delegation_chain"
             ELSE
               "output_row"."participation" := NULL;
             END IF;
+          ELSE
+            "output_row"."participation" := FALSE;
           END IF;
         ELSE
-          "output_row"."participation" := FALSE;
+          "output_row"."participation" := NULL;
         END IF;
 
         -- scope_out
@@ -2581,11 +2565,6 @@ CREATE FUNCTION "delegation_chain"
       LOOP
         "output_row" := "output_rows"["i"];
         EXIT WHEN "output_row" ISNULL;  -- NOTE: ISNULL and NOT ... NOTNULL produce different results!
-
-        IF "scope_v" = 'unit' THEN
-          "output_row"."participation" := NULL;
-        END IF;
-
         RETURN NEXT "output_row";
         "i" := "i" + 1;
       END LOOP;
@@ -2612,24 +2591,12 @@ COMMENT ON FUNCTION "delegation_chain"
 CREATE TYPE "delegation_info_type" AS (
         "own_participation"           BOOLEAN,
         "own_delegation_scope"        "delegation_scope",
-        "first_trustee_id"            INT4,
-        "first_trustee_participation" BOOLEAN,
-        "first_trustee_ellipsis"      BOOLEAN,
-        "other_trustee_id"            INT4,
-        "other_trustee_participation" BOOLEAN,
-        "other_trustee_ellipsis"      BOOLEAN,
         "participating_member_id"     INT4 );
 
 COMMENT ON TYPE "delegation_info_type" IS 'Type of result returned by "delegation_info" function; For meaning of "participation" check comment on "delegation_chain_row" type';
 
 COMMENT ON COLUMN "delegation_info_type"."own_participation"           IS 'Member is directly participating';
 COMMENT ON COLUMN "delegation_info_type"."own_delegation_scope"        IS 'Delegation scope of member';
-COMMENT ON COLUMN "delegation_info_type"."first_trustee_id"            IS 'Direct trustee of member';
-COMMENT ON COLUMN "delegation_info_type"."first_trustee_participation" IS 'Direct trustee of member is participating';
-COMMENT ON COLUMN "delegation_info_type"."first_trustee_ellipsis"      IS 'Ellipsis in delegation chain after "first_trustee"';
-COMMENT ON COLUMN "delegation_info_type"."other_trustee_id"            IS 'Another relevant trustee (due to participation)';
-COMMENT ON COLUMN "delegation_info_type"."other_trustee_participation" IS 'Another trustee is participating (redundant field: if "other_trustee_id" is set, then "other_trustee_participation" is always TRUE, else "other_trustee_participation" is NULL)';
-COMMENT ON COLUMN "delegation_info_type"."other_trustee_ellipsis"      IS 'Ellipsis in delegation chain after "other_trustee"';
 COMMENT ON COLUMN "delegation_info_type"."participating_member_id"     IS 'First participating member in delegation chain';
 
 
@@ -2658,22 +2625,6 @@ CREATE FUNCTION "delegation_info"
         IF "current_row"."member_id" = "member_id_p" THEN
           "result"."own_participation"    := "current_row"."participation";
           "result"."own_delegation_scope" := "current_row"."scope_out";
-        ELSIF "current_row"."member_valid" THEN
-          IF "result"."first_trustee_id" ISNULL THEN
-            "result"."first_trustee_id"            := "current_row"."member_id";
-            "result"."first_trustee_participation" := "current_row"."participation";
-            "result"."first_trustee_ellipsis"      := FALSE;
-          ELSIF "result"."other_trustee_id" ISNULL THEN
-            IF "current_row"."participation" AND NOT "current_row"."overridden" THEN
-              "result"."other_trustee_id"            := "current_row"."member_id";
-              "result"."other_trustee_participation" := TRUE;
-              "result"."other_trustee_ellipsis"      := FALSE;
-            ELSE
-              "result"."first_trustee_ellipsis" := TRUE;
-            END IF;
-          ELSE
-            "result"."other_trustee_ellipsis" := TRUE;
-          END IF;
         END IF;
 
       END LOOP;
@@ -2891,6 +2842,7 @@ CREATE FUNCTION "create_population_snapshot"
       -- directly subscribed members
       INSERT INTO "direct_population_snapshot"
         ("issue_id", "event", "member_id")
+        -- members of area
         SELECT
           "issue_id_p"                 AS "issue_id",
           'periodic'::"snapshot_event" AS "event",
@@ -2905,6 +2857,7 @@ CREATE FUNCTION "create_population_snapshot"
         WHERE "issue"."id" = "issue_id_p"
         AND "member"."active" AND "privilege"."voting_right"
         UNION
+        -- interested in issue
         SELECT
           "issue_id_p"                 AS "issue_id",
           'periodic'::"snapshot_event" AS "event",
