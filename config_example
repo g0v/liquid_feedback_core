@@ -10,10 +10,8 @@ dbuser="www-data"
 # path
 path="/opt/pirate_feedback"
 
-# === database export and backup ===
-# file names without .gz suffix, this will be added after compression
-exportfile="$path/export_dump/pirate_feedback_example_export_` date +%Y-%m-%d_%H-%I `.sql"
-backupfile="$path/backup_dump/pirate_feedback_example_backup.sql"
+# === database export ===
+exportfile="$path/export_dump/pirate_feedback_example_export_` date +%Y-%m-%d_%H-%I `.sql.gz"
 
 # === member import ===
 # absolute path to the CSV file

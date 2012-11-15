@@ -1,42 +1,32 @@
 #!/bin/bash
-# backup and export database
+# export database
 # should be run by cron as user apache/www-data
 
 # read configuration
 path=$( dirname $( readlink -f $( dirname $0 ) ) )
 source $path/liquid_feedback_core/config
 
-echo "Dumping database \"$dbname\" to \"$backupfile\" ..."
-if (pg_dump "$dbname" > "$backupfile")
+retval=0
+
+echo "Dropping database \"$dbname_export\" if existent ..."
+dropdb "$dbname_export" 2> /dev/null
+echo "Copying database \"$1\" to new database \"$EXPORT_DBNAME\" ..."
+# TODO: use character encoding of original database
+if (createdb "$dbname_export" && pg_dump "$dbname" | psql -f - "$dbname_export" > /dev/null)
 then
-
-  echo "Dropping database \"$dbname_export\" if existent ..."
-  dropdb "$dbname_export" 2> /dev/null
-
-  echo "Creating new database \"$dbname_export\" ..."
-  # TODO: use character encoding of original database
-  if (createdb "$dbname_export" && psql -f - "$dbname_export" < "$backupfile" > /dev/null)
+  echo "Deleting private data in copied database..."
+  if psql -v ON_ERROR_STOP=1 -c 'SELECT delete_private_data()' "$dbname_export" > /dev/null
   then
-    echo "Deleting private data in copied database ..."
-    if psql -v ON_ERROR_STOP=1 -c 'SELECT delete_private_data()' "$dbname_export" > /dev/null
+    echo "Dumping and compressing copied database to \"$exportfile\" ..."
+    if pg_dump --no-owner --no-privileges "$dbname_export" | gzip -9 > "$exportfile"
     then
-      echo "Dumping and compressing copied database to \"$exportfile.gz\" ..."
-      if pg_dump --no-owner --no-privileges "$dbname_export" | gzip -9 > "$exportfile.gz"
-      then
-        true
-      else
-        retval=5
-      fi
+      true
     else
       retval=4
     fi
   else
     retval=3
   fi
-
-  echo "Compressing backup file to \"$backupfile.gz\" ..."
-  gzip -f -9 "$backupfile"
-
 else
   retval=2
 fi
