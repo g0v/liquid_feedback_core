@@ -21,7 +21,11 @@ while true; do
   su - $dbuser -c "nice $path/liquid_feedback_core/lf_update dbname=$dbname 2>&1 | logger -t 'lf_updated'"
 
   # sleep depending on load
-  sleep $( echo "5 + $( cut -f2 -d' ' < /proc/loadavg ) * 20" | bc )
+  # load 0.1 ->   35s
+  # load 0.5 ->   55s
+  # load 1.0 -> 1'20s
+  # load 2.0 -> 2'10s
+  sleep $( echo "30 + $( cut -f2 -d' ' < /proc/loadavg ) * 50" | bc )
 
 done
 
