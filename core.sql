@@ -76,9 +76,9 @@ COMMENT ON COLUMN "contingent"."initiative_limit" IS 'Number of new initiatives 
 
 
 CREATE TYPE "notify_level" AS ENUM
-  ('none', 'voting', 'verification', 'discussion', 'all');
+  ('expert', 'none', 'voting', 'verification', 'discussion', 'all');
 
-COMMENT ON TYPE "notify_level" IS 'Level of notification: ''none'' = no notifications, ''voting'' = notifications about finished issues and issues in voting, ''verification'' = notifications about finished issues, issues in voting and verification phase, ''discussion'' = notifications about everything except issues in admission phase, ''all'' = notifications about everything';
+COMMENT ON TYPE "notify_level" IS 'Level of notification: ''expert'' = detailed settings in table ''notify'', ''none'' = no notifications, ''voting'' = notifications about finished issues and issues in voting, ''verification'' = notifications about finished issues, issues in voting and verification phase, ''discussion'' = notifications about everything except issues in admission phase, ''all'' = notifications about everything';
 
 
 CREATE TABLE "member" (
@@ -168,6 +168,40 @@ COMMENT ON COLUMN "member"."external_memberships" IS 'Other organizations the me
 COMMENT ON COLUMN "member"."external_posts"       IS 'Posts (offices) outside the organization';
 COMMENT ON COLUMN "member"."formatting_engine"    IS 'Allows different formatting engines (i.e. wiki formats) to be used for "member"."statement"';
 COMMENT ON COLUMN "member"."statement"            IS 'Freely chosen text of the member for his/her profile';
+
+
+CREATE TYPE "notify_interest" AS ENUM
+  ('all', 'my_units', 'my_areas', 'interested', 'potentially', 'supported', 'initiated', 'voted');
+
+
+CREATE TABLE "notify" (
+        "member_id"                                          INT4    NOT NULL REFERENCES "member" ("id")
+                                                             ON DELETE CASCADE ON UPDATE CASCADE,
+        "interest"                                           "notify_interest" NOT NULL,
+        "initiative_created_in_new_issue"                    BOOLEAN NOT NULL DEFAULT FALSE,
+        "admission__initiative_created_in_existing_issue"    BOOLEAN NOT NULL DEFAULT FALSE,
+        "admission__new_draft_created"                       BOOLEAN NOT NULL DEFAULT FALSE,
+        "admission__suggestion_created"                      BOOLEAN NOT NULL DEFAULT FALSE,
+        "admission__initiative_revoked"                      BOOLEAN NOT NULL DEFAULT FALSE,
+        "canceled_revoked_before_accepted"                   BOOLEAN NOT NULL DEFAULT FALSE,
+        "canceled_issue_not_accepted"                        BOOLEAN NOT NULL DEFAULT FALSE,
+        "discussion"                                         BOOLEAN NOT NULL DEFAULT FALSE,
+        "discussion__initiative_created_in_existing_issue"   BOOLEAN NOT NULL DEFAULT FALSE,
+        "discussion__new_draft_created"                      BOOLEAN NOT NULL DEFAULT FALSE,
+        "discussion__suggestion_created"                     BOOLEAN NOT NULL DEFAULT FALSE,
+        "discussion__initiative_revoked"                     BOOLEAN NOT NULL DEFAULT FALSE,
+        "canceled_after_revocation_during_discussion"        BOOLEAN NOT NULL DEFAULT FALSE,
+        "verification"                                       BOOLEAN NOT NULL DEFAULT FALSE,
+        "verification__initiative_created_in_existing_issue" BOOLEAN NOT NULL DEFAULT FALSE,
+        "verification__initiative_revoked"                   BOOLEAN NOT NULL DEFAULT FALSE,
+        "canceled_after_revocation_during_verification"      BOOLEAN NOT NULL DEFAULT FALSE,
+        "canceled_no_initiative_admitted"                    BOOLEAN NOT NULL DEFAULT FALSE,
+        "voting"                                             BOOLEAN NOT NULL DEFAULT FALSE,
+        "finished_with_winner"                               BOOLEAN NOT NULL DEFAULT FALSE,
+        "finished_without_winner"                            BOOLEAN NOT NULL DEFAULT FALSE );
+CREATE UNIQUE INDEX notify_member_interest ON notify USING btree (member_id, interest);
+
+COMMENT ON TABLE "notify" IS 'Member settings in export mode which notifications are to be sent; No entry if the member does not use the expert mode';
 
 
 CREATE TYPE "application_access_level" AS ENUM
@@ -2038,34 +2072,16 @@ COMMENT ON VIEW "member_contingent_left" IS 'Amount of text entries or initiativ
 CREATE VIEW "event_seen_by_member" AS
   SELECT
     "member"."id" AS "seen_by_member_id",
-    CASE WHEN "event"."state" IN (
-      'voting',
-      'finished_without_winner',
-      'finished_with_winner'
-    ) THEN
-      'voting'::"notify_level"
-    ELSE
-      CASE WHEN "event"."state" IN (
-        'verification',
-        'canceled_after_revocation_during_verification',
-        'canceled_no_initiative_admitted'
-      ) THEN
-        'verification'::"notify_level"
-      ELSE
-        CASE WHEN "event"."state" IN (
-          'discussion',
-          'canceled_after_revocation_during_discussion'
-        ) THEN
-          'discussion'::"notify_level"
-        ELSE
-          'all'::"notify_level"
-        END
-      END
-    END AS "notify_level",
     "event".*
   FROM "member" CROSS JOIN "event"
   LEFT JOIN "issue"
     ON "event"."issue_id" = "issue"."id"
+  LEFT JOIN "area"
+    ON "issue"."area_id" = "area"."id"
+  LEFT JOIN "privilege"
+    ON "member"."id" = "privilege"."member_id"
+    AND "privilege"."unit_id" = "area"."unit_id"
+    AND "privilege"."voting_right" = TRUE
   LEFT JOIN "membership"
     ON "member"."id" = "membership"."member_id"
     AND "issue"."area_id" = "membership"."area_id"
@@ -2075,102 +2091,121 @@ CREATE VIEW "event_seen_by_member" AS
   LEFT JOIN "supporter"
     ON "member"."id" = "supporter"."member_id"
     AND "event"."initiative_id" = "supporter"."initiative_id"
+  LEFT JOIN "critical_opinion"
+    ON "member"."id" = "critical_opinion"."member_id"
+    AND "event"."initiative_id" = "critical_opinion"."initiative_id"
+  LEFT JOIN "initiator"
+    ON "member"."id" = "initiator"."member_id"
+    AND "event"."initiative_id" = "initiator"."initiative_id"
+    AND "initiator"."accepted" = TRUE
+  LEFT JOIN "direct_voter"
+    ON "member"."id" = "direct_voter"."member_id"
+    AND "issue"."id" = "direct_voter"."issue_id"
+    AND "issue"."closed" NOTNULL
   LEFT JOIN "ignored_member"
     ON "member"."id" = "ignored_member"."member_id"
     AND "event"."member_id" = "ignored_member"."other_member_id"
   LEFT JOIN "ignored_initiative"
     ON "member"."id" = "ignored_initiative"."member_id"
     AND "event"."initiative_id" = "ignored_initiative"."initiative_id"
+  FULL JOIN "notify"
+    ON "member"."id" = "notify"."member_id"
   WHERE (
-    "supporter"."member_id" NOTNULL OR
-    "interest"."member_id" NOTNULL OR
-    ( "membership"."member_id" NOTNULL AND
-      "event"."event" IN (
-        'issue_state_changed',
-        'initiative_created_in_new_issue',
-        'initiative_created_in_existing_issue',
-        'initiative_revoked' ) ) )
+    -- standard mode
+    (
+      (
+        ( "member"."notify_level" >= 'all' ) OR
+        ( "member"."notify_level" >= 'voting' AND
+          "event"."state" IN (
+            'voting',
+            'finished_without_winner',
+            'finished_with_winner' ) ) OR
+        ( "member"."notify_level" >= 'verification' AND
+          "event"."state" IN (
+            'verification',
+            'canceled_after_revocation_during_verification',
+            'canceled_no_initiative_admitted' ) ) OR
+        ( "member"."notify_level" >= 'discussion' AND
+          "event"."state" IN (
+            'discussion',
+            'canceled_after_revocation_during_discussion' ) )
+      ) AND (
+        "supporter"."member_id" NOTNULL OR
+        "interest"."member_id" NOTNULL OR
+        ( "membership"."member_id" NOTNULL AND
+          "event"."event" IN (
+            'issue_state_changed',
+            'initiative_created_in_new_issue',
+            'initiative_created_in_existing_issue',
+            'initiative_revoked' ) )
+      )
+    )
+    -- expert mode
+    OR (
+      "member"."notify_level" = 'expert' AND (
+        "notify"."interest" = 'all' OR
+        ("notify"."interest" = 'my_units'    AND "privilege"."member_id" NOTNULL) OR
+        ("notify"."interest" = 'my_areas'    AND "membership"."member_id" NOTNULL) OR
+        ("notify"."interest" = 'interested'  AND "interest"."member_id" NOTNULL) OR
+        ("notify"."interest" = 'potentially' AND "supporter"."member_id" NOTNULL AND "critical_opinion"."member_id" NOTNULL) OR
+        ("notify"."interest" = 'supported'   AND "supporter"."member_id" NOTNULL AND "critical_opinion"."member_id" ISNULL) OR
+        ("notify"."interest" = 'initiated'   AND "initiator"."member_id" NOTNULL) OR
+        ("notify"."interest" = 'voted'       AND "direct_voter"."member_id" NOTNULL)
+      ) AND (
+        -- admission / new
+        ("notify"."initiative_created_in_new_issue" AND
+          "event"."event" = 'initiative_created_in_new_issue') OR
+        ("notify"."admission__initiative_created_in_existing_issue" AND
+          "event"."event" = 'initiative_created_in_existing_issue' AND "event"."state" = 'admission') OR
+        ("notify"."admission__new_draft_created" AND
+          "event"."event" = 'new_draft_created'                    AND "event"."state" = 'admission') OR
+        ("notify"."admission__suggestion_created" AND
+          "event"."event" = 'suggestion_created'                   AND "event"."state" = 'admission') OR
+        ("notify"."admission__initiative_revoked" AND
+          "event"."event" = 'initiative_revoked'                   AND "event"."state" = 'admission') OR
+        ("notify"."canceled_revoked_before_accepted" AND
+          "event"."event" = 'issue_state_changed' AND "event"."state" = 'canceled_revoked_before_accepted') OR
+        ("notify"."canceled_issue_not_accepted" AND
+          "event"."event" = 'issue_state_changed' AND "event"."state" = 'canceled_issue_not_accepted') OR
+        -- discussion
+        ("notify"."discussion" AND
+          "event"."event" = 'issue_state_changed'                  AND "event"."state" = 'discussion') OR
+        ("notify"."discussion__initiative_created_in_existing_issue" AND
+          "event"."event" = 'initiative_created_in_existing_issue' AND "event"."state" = 'discussion') OR
+        ("notify"."discussion__new_draft_created" AND
+          "event"."event" = 'new_draft_created'                    AND "event"."state" = 'discussion') OR
+        ("notify"."discussion__suggestion_created" AND
+          "event"."event" = 'suggestion_created'                   AND "event"."state" = 'discussion') OR
+        ("notify"."discussion__initiative_revoked" AND
+          "event"."event" = 'initiative_revoked'                   AND "event"."state" = 'discussion') OR
+        ("notify"."canceled_after_revocation_during_discussion" AND
+          "event"."event" = 'issue_state_changed' AND "event"."state" = 'canceled_after_revocation_during_discussion') OR
+        -- verification
+        ("notify"."verification" AND
+          "event"."event" = 'issue_state_changed'                  AND "event"."state" = 'verification') OR
+        ("notify"."verification__initiative_created_in_existing_issue" AND
+          "event"."event" = 'initiative_created_in_existing_issue' AND "event"."state" = 'verification') OR
+        ("notify"."verification__initiative_revoked" AND
+          "event"."event" = 'initiative_revoked'                   AND "event"."state" = 'verification') OR
+        ("notify"."canceled_after_revocation_during_verification" AND
+          "event"."event" = 'issue_state_changed' AND "event"."state" = 'canceled_after_revocation_during_verification') OR
+        ("notify"."canceled_no_initiative_admitted" AND
+          "event"."event" = 'issue_state_changed' AND "event"."state" = 'canceled_no_initiative_admitted') OR
+        -- voting
+        ("notify"."voting" AND
+          "event"."event" = 'issue_state_changed' AND "event"."state" = 'voting') OR
+        ("notify"."finished_with_winner" AND
+          "event"."event" = 'issue_state_changed' AND "event"."state" = 'finished_with_winner') OR
+        ("notify"."finished_without_winner" AND
+          "event"."event" = 'issue_state_changed' AND "event"."state" = 'finished_without_winner')
+      )
+    )
+  )
   AND "ignored_member"."member_id" ISNULL
-  AND "ignored_initiative"."member_id" ISNULL;
+  AND "ignored_initiative"."member_id" ISNULL
+  GROUP BY "member"."id", "event"."id";
 
-COMMENT ON VIEW "event_seen_by_member" IS 'Events as seen by a member, depending on its memberships, interests and support, but ignoring members "notify_level"';
-
-
-CREATE VIEW "selected_event_seen_by_member" AS
-  SELECT
-    "member"."id" AS "seen_by_member_id",
-    CASE WHEN "event"."state" IN (
-      'voting',
-      'finished_without_winner',
-      'finished_with_winner'
-    ) THEN
-      'voting'::"notify_level"
-    ELSE
-      CASE WHEN "event"."state" IN (
-        'verification',
-        'canceled_after_revocation_during_verification',
-        'canceled_no_initiative_admitted'
-      ) THEN
-        'verification'::"notify_level"
-      ELSE
-        CASE WHEN "event"."state" IN (
-          'discussion',
-          'canceled_after_revocation_during_discussion'
-        ) THEN
-          'discussion'::"notify_level"
-        ELSE
-          'all'::"notify_level"
-        END
-      END
-    END AS "notify_level",
-    "event".*
-  FROM "member" CROSS JOIN "event"
-  LEFT JOIN "issue"
-    ON "event"."issue_id" = "issue"."id"
-  LEFT JOIN "membership"
-    ON "member"."id" = "membership"."member_id"
-    AND "issue"."area_id" = "membership"."area_id"
-  LEFT JOIN "interest"
-    ON "member"."id" = "interest"."member_id"
-    AND "event"."issue_id" = "interest"."issue_id"
-  LEFT JOIN "supporter"
-    ON "member"."id" = "supporter"."member_id"
-    AND "event"."initiative_id" = "supporter"."initiative_id"
-  LEFT JOIN "ignored_member"
-    ON "member"."id" = "ignored_member"."member_id"
-    AND "event"."member_id" = "ignored_member"."other_member_id"
-  LEFT JOIN "ignored_initiative"
-    ON "member"."id" = "ignored_initiative"."member_id"
-    AND "event"."initiative_id" = "ignored_initiative"."initiative_id"
-  WHERE (
-    ( "member"."notify_level" >= 'all' ) OR
-    ( "member"."notify_level" >= 'voting' AND
-      "event"."state" IN (
-        'voting',
-        'finished_without_winner',
-        'finished_with_winner' ) ) OR
-    ( "member"."notify_level" >= 'verification' AND
-      "event"."state" IN (
-        'verification',
-        'canceled_after_revocation_during_verification',
-        'canceled_no_initiative_admitted' ) ) OR
-    ( "member"."notify_level" >= 'discussion' AND
-      "event"."state" IN (
-        'discussion',
-        'canceled_after_revocation_during_discussion' ) ) )
-  AND (
-    "supporter"."member_id" NOTNULL OR
-    "interest"."member_id" NOTNULL OR
-    ( "membership"."member_id" NOTNULL AND
-      "event"."event" IN (
-        'issue_state_changed',
-        'initiative_created_in_new_issue',
-        'initiative_created_in_existing_issue',
-        'initiative_revoked' ) ) )
-  AND "ignored_member"."member_id" ISNULL
-  AND "ignored_initiative"."member_id" ISNULL;
-
-COMMENT ON VIEW "selected_event_seen_by_member" IS 'Events as seen by a member, depending on its memberships, interests, support and members "notify_level"';
+COMMENT ON VIEW "event_seen_by_member" IS 'Events as seen by a member, depending on its memberships, interests, support and members "notify_level"';
 
 
 CREATE TYPE "timeline_event" AS ENUM (
