@@ -34,9 +34,6 @@ echo
 echo "==== ls -l ` dirname $exportfile `"
 ls -l ` dirname $exportfile `
 echo
-echo "==== ls -l ` dirname $backupfile `"
-ls -l ` dirname $backupfile `
-echo
 echo "==== ls -l ` dirname $member_import_csvfile `"
 ls -l ` dirname $member_import_csvfile `
 echo
