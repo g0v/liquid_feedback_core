@@ -11,7 +11,7 @@ dbuser="www-data"
 path="/opt/pirate_feedback"
 
 # === database export ===
-exportfile="$path/export_dump/pirate_feedback_example_export_` date +%Y-%m-%d_%H-%I `.sql.gz"
+exportfile="$path/export_dump/pirate_feedback_example_export_` date +%Y-%m-%d_%H-%M `.sql.gz"
 
 # === member import ===
 # absolute path to the CSV file
