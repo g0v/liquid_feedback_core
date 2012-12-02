@@ -29,6 +29,9 @@ tail /var/log/syslog
 echo
 echo "==== tail /var/log/messages"
 tail /var/log/messages
+echo
+echo "==== tail -20 /var/lib/postgresql/8.4/main/pg_log/$( ls -1 /var/lib/postgresql/8.4/main/pg_log | tail -1 )"
+tail -20 /var/lib/postgresql/8.4/main/pg_log/$( ls -1 /var/lib/postgresql/8.4/main/pg_log | tail -1 )
 
 echo
 echo "==== ls -l ` dirname $exportfile `"
