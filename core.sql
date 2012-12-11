@@ -808,7 +808,7 @@ CREATE TABLE "rendered_suggestion" (
         "format"                TEXT,
         "content"               TEXT            NOT NULL );
 
-COMMENT ON TABLE "rendered_suggestion" IS 'This table may be used by frontends to cache "rendered" drafts (e.g. HTML output generated from wiki text)';
+COMMENT ON TABLE "rendered_suggestion" IS 'This table may be used by frontends to cache "rendered" suggestions (e.g. HTML output generated from wiki text)';
 
 
 CREATE TABLE "suggestion_setting" (
@@ -819,6 +819,46 @@ CREATE TABLE "suggestion_setting" (
         "value"                 TEXT            NOT NULL );
 
 COMMENT ON TABLE "suggestion_setting" IS 'Place for frontend to store suggestion specific settings of members as strings';
+
+
+CREATE TYPE side AS ENUM ('pro', 'contra');
+
+CREATE TABLE "argument" (
+        UNIQUE ("initiative_id", "id"),  -- index needed for foreign-key on table "rating"
+        "initiative_id"         INT4            REFERENCES "initiative" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+        "id"                    SERIAL8         PRIMARY KEY,
+        --"parent_id"             SERIAL8,
+        "created"               TIMESTAMPTZ     NOT NULL DEFAULT now(),
+        "author_id"             INT4            REFERENCES "member" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+        "name"                  TEXT            NOT NULL,
+        "formatting_engine"     TEXT,
+        "content"               TEXT            NOT NULL DEFAULT '',
+        "text_search_data"      TSVECTOR,
+        "side"                  side            NOT NULL,
+        "minus_count"           INT4            NOT NULL DEFAULT 0,
+        "plus_count"            INT4            NOT NULL DEFAULT 0 );
+CREATE INDEX "argument_created_idx" ON "argument" ("created");
+CREATE INDEX "argument_author_id_created_idx" ON "argument" ("author_id", "created");
+CREATE INDEX "argument_text_search_data_idx" ON "argument" USING gin ("text_search_data");
+CREATE TRIGGER "update_text_search_data"
+  BEFORE INSERT OR UPDATE ON "argument"
+  FOR EACH ROW EXECUTE PROCEDURE
+  tsvector_update_trigger('text_search_data', 'pg_catalog.simple',
+    "name", "content");
+
+COMMENT ON TABLE "argument" IS 'Arguments to initiatives';
+
+COMMENT ON COLUMN "argument"."minus_count" IS 'Number of negative ratings; delegations are not considered';
+COMMENT ON COLUMN "argument"."plus_count"  IS 'Number of positive ratings; delegations are not considered';
+
+
+CREATE TABLE "rendered_argument" (
+        PRIMARY KEY ("argument_id", "format"),
+        "argument_id"           INT8            NOT NULL REFERENCES "argument" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+        "format"                TEXT,
+        "content"               TEXT            NOT NULL );
+
+COMMENT ON TABLE "rendered_argument" IS 'This table may be used by frontends to cache "rendered" arguments (e.g. HTML output generated from wiki text)';
 
 
 CREATE TABLE "privilege" (
@@ -900,6 +940,19 @@ CREATE INDEX "opinion_member_id_initiative_id_idx" ON "opinion" ("member_id", "i
 COMMENT ON TABLE "opinion" IS 'Opinion on suggestions (criticism related to initiatives); Frontends must ensure that opinions are not created modified or deleted when related to fully_frozen or closed issues.';
 
 COMMENT ON COLUMN "opinion"."degree" IS '2 = fulfillment required for support; 1 = fulfillment desired; -1 = fulfillment unwanted; -2 = fulfillment cancels support';
+
+
+CREATE TABLE "rating" (
+        "issue_id"              INT4            NOT NULL,
+        "initiative_id"         INT4            NOT NULL,
+        PRIMARY KEY ("argument_id", "member_id"),
+        "argument_id"           INT8            REFERENCES "argument" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+        "member_id"             INT4            REFERENCES "member" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+        "negative"              BOOLEAN         NOT NULL DEFAULT FALSE,
+        FOREIGN KEY ("issue_id", "member_id") REFERENCES "interest" ("issue_id", "member_id") ON DELETE CASCADE ON UPDATE CASCADE );
+CREATE INDEX "rating_member_id_argument_id_idx" ON "rating" ("member_id", "initiative_id");
+
+COMMENT ON TABLE "rating" IS 'Rating of arguments; Frontends must ensure that ratings are not created modified or deleted when related to fully_frozen or closed issues.';
 
 
 CREATE TYPE "delegation_scope" AS ENUM ('unit', 'area', 'issue');
@@ -1763,9 +1816,12 @@ CREATE FUNCTION "autocreate_interest_trigger"()
 
 CREATE TRIGGER "autocreate_interest" BEFORE INSERT ON "supporter"
   FOR EACH ROW EXECUTE PROCEDURE "autocreate_interest_trigger"();
+CREATE TRIGGER "autocreate_interest_rating" BEFORE INSERT ON "rating"
+  FOR EACH ROW EXECUTE PROCEDURE "autocreate_interest_trigger"();
 
 COMMENT ON FUNCTION "autocreate_interest_trigger"()     IS 'Implementation of trigger "autocreate_interest" on table "supporter"';
 COMMENT ON TRIGGER "autocreate_interest" ON "supporter" IS 'Supporting an initiative implies interest in the issue, thus automatically creates an entry in the "interest" table';
+COMMENT ON TRIGGER "autocreate_interest_rating" ON "rating" IS 'Rating an argument implies interest in the issue, thus automatically creates an entry in the "interest" table';
 
 
 CREATE FUNCTION "autocreate_supporter_trigger"()
@@ -3087,6 +3143,8 @@ CREATE FUNCTION "create_snapshot"
     DECLARE
       "initiative_id_v"    "initiative"."id"%TYPE;
       "suggestion_id_v"    "suggestion"."id"%TYPE;
+      "argument_id_v"      "argument"."id"%TYPE;
+      "side_v"             "argument"."side"%TYPE;
     BEGIN
       PERFORM "lock_issue"("issue_id_p");
       PERFORM "create_population_snapshot"("issue_id_p");
@@ -3252,6 +3310,49 @@ CREATE FUNCTION "create_snapshot"
               AND "opinion"."fulfilled" = TRUE
             )
             WHERE "suggestion"."id" = "suggestion_id_v";
+        END LOOP;
+        FOR "argument_id_v", "side_v" IN
+          SELECT "id", "side" FROM "argument"
+          WHERE "initiative_id" = "initiative_id_v"
+        LOOP
+          IF "side_v" = 'pro' THEN
+            -- count only ratings by supporters
+            UPDATE "argument" SET
+              "plus_count"  = "subquery"."plus_count",
+              "minus_count" = "subquery"."minus_count"
+            FROM (
+              SELECT
+                COUNT(CASE WHEN "rating"."negative" = FALSE THEN 1 ELSE NULL END) AS "plus_count",
+                COUNT(CASE WHEN "rating"."negative" = TRUE  THEN 1 ELSE NULL END) AS "minus_count"
+              FROM "issue" CROSS JOIN "rating"
+              JOIN "direct_supporter_snapshot" AS "snapshot"
+                ON "snapshot"."issue_id" = "issue"."id"
+                AND "snapshot"."event" = "issue"."latest_snapshot_event"
+                AND "snapshot"."member_id" = "rating"."member_id"
+              WHERE "issue"."id" = "issue_id_p"
+                AND "rating"."argument_id" = "argument_id_v"
+            ) AS "subquery"
+            WHERE "argument"."id" = "argument_id_v";
+          ELSE
+            -- count only ratings by non-supporters
+            UPDATE "argument" SET
+              "plus_count"  = "subquery"."plus_count",
+              "minus_count" = "subquery"."minus_count"
+            FROM (
+              SELECT
+                COUNT(CASE WHEN "rating"."negative" = FALSE THEN 1 ELSE NULL END) AS "plus_count",
+                COUNT(CASE WHEN "rating"."negative" = TRUE  THEN 1 ELSE NULL END) AS "minus_count"
+              FROM "issue" CROSS JOIN "rating"
+              LEFT JOIN "direct_supporter_snapshot" AS "snapshot"
+                ON "snapshot"."issue_id" = "issue"."id"
+                AND "snapshot"."event" = "issue"."latest_snapshot_event"
+                AND "snapshot"."member_id" = "rating"."member_id"
+              WHERE "issue"."id" = "issue_id_p"
+                AND "rating"."argument_id" = "argument_id_v"
+                AND "snapshot"."member_id" IS NULL
+            ) AS "subquery"
+            WHERE "argument"."id" = "argument_id_v";
+          END IF;
         END LOOP;
       END LOOP;
       RETURN;
