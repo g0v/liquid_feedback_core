@@ -2,7 +2,8 @@
 # recreate the database schema
 #
 # Usage: recreate_schema.sh [<data.sql>]
-# if data.sql is supplied, it will replace the existing database content
+# if data.sql is supplied, it will replace the existing database content.
+# data.sql may also be compressed as data.sql.bz2 or data.sql.gz.
 # run as root
 
 # exit on error
@@ -33,4 +34,13 @@ su $dbuser  -c " createdb $dbname "
 su $dbuser  -c " createlang plpgsql $dbname || true "
 su $dbuser  -c " psql -v ON_ERROR_STOP=1 -q -f core.sql $dbname "
 
-su postgres -c " psql -v ON_ERROR_STOP=1 -q -f $datasql $dbname "
+case "$datasql" in
+  *.bz2)
+    su postgres -c " bunzip2 -c $datasql | psql -v ON_ERROR_STOP=1 -q $dbname "
+    ;;
+  *.gz)
+    su postgres -c " gunzip -c $datasql | psql -v ON_ERROR_STOP=1 -q $dbname "
+    ;;
+  *)
+    su postgres -c " psql -v ON_ERROR_STOP=1 -q -f $datasql $dbname "
+esac
