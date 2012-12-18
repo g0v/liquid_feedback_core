@@ -532,6 +532,7 @@ CREATE TABLE "issue" (
         "latest_snapshot_event" "snapshot_event",
         "population"            INT4,
         "voter_count"           INT4,
+        "direct_voter_count"    INT4,
         "status_quo_schulze_rank" INT4,
         CONSTRAINT "valid_state" CHECK ((
           ("accepted" ISNULL  AND "half_frozen" ISNULL  AND "fully_frozen" ISNULL  AND "closed" ISNULL  AND "ranks_available" = FALSE) OR
@@ -595,6 +596,7 @@ COMMENT ON COLUMN "issue"."snapshot"                IS 'Point in time, when snap
 COMMENT ON COLUMN "issue"."latest_snapshot_event"   IS 'Event type of latest snapshot for issue; Can be used to select the latest snapshot data in the snapshot tables';
 COMMENT ON COLUMN "issue"."population"              IS 'Sum of "weight" column in table "direct_population_snapshot"';
 COMMENT ON COLUMN "issue"."voter_count"             IS 'Total number of direct and delegating voters; This value is related to the final voting, while "population" is related to snapshots before the final voting';
+COMMENT ON COLUMN "issue"."voter_count"             IS 'Total number of direct voters';
 COMMENT ON COLUMN "issue"."status_quo_schulze_rank" IS 'Schulze rank of status quo, as calculated by "calculate_ranks" function';
 
 
@@ -625,6 +627,8 @@ CREATE TABLE "initiative" (
         "satisfied_informed_supporter_count" INT4,
         "positive_votes"        INT4,
         "negative_votes"        INT4,
+        "positive_direct_votes" INT4,
+        "negative_direct_votes" INT4,
         "direct_majority"       BOOLEAN,
         "indirect_majority"     BOOLEAN,
         "schulze_rank"          INT4,
@@ -645,6 +649,7 @@ CREATE TABLE "initiative" (
         CONSTRAINT "non_admitted_initiatives_cant_contain_voting_results" CHECK (
           ( "admitted" NOTNULL AND "admitted" = TRUE ) OR
           ( "positive_votes" ISNULL AND "negative_votes" ISNULL AND
+            "positive_direct_votes" ISNULL AND "negative_direct_votes" ISNULL AND
             "direct_majority" ISNULL AND "indirect_majority" ISNULL AND
             "schulze_rank" ISNULL AND
             "better_than_status_quo" ISNULL AND "worse_than_status_quo" ISNULL AND
@@ -679,6 +684,8 @@ COMMENT ON COLUMN "initiative"."satisfied_supporter_count"          IS 'Calculat
 COMMENT ON COLUMN "initiative"."satisfied_informed_supporter_count" IS 'Calculated from table "direct_supporter_snapshot"';
 COMMENT ON COLUMN "initiative"."positive_votes"         IS 'Calculated from table "direct_voter"';
 COMMENT ON COLUMN "initiative"."negative_votes"         IS 'Calculated from table "direct_voter"';
+COMMENT ON COLUMN "initiative"."positive_direct_votes"  IS 'Calculated from table "direct_voter"';
+COMMENT ON COLUMN "initiative"."negative_direct_votes"  IS 'Calculated from table "direct_voter"';
 COMMENT ON COLUMN "initiative"."direct_majority"        IS 'TRUE, if "positive_votes"/("positive_votes"+"negative_votes") is strictly greater or greater-equal than "direct_majority_num"/"direct_majority_den", and "positive_votes" is greater-equal than "direct_majority_positive", and ("positive_votes"+abstentions) is greater-equal than "direct_majority_non_negative"';
 COMMENT ON COLUMN "initiative"."indirect_majority"      IS 'Same as "direct_majority", but also considering indirect beat paths';
 COMMENT ON COLUMN "initiative"."schulze_rank"           IS 'Schulze-Ranking without tie-breaking';
@@ -698,6 +705,7 @@ CREATE TABLE "battle" (
         "losing_initiative_id"  INT4,
         FOREIGN KEY ("issue_id", "losing_initiative_id") REFERENCES "initiative" ("issue_id", "id") ON DELETE CASCADE ON UPDATE CASCADE,
         "count"                 INT4            NOT NULL,
+        "direct_count"          INT4, -- allow NULL for compatibility with existing records
         CONSTRAINT "initiative_ids_not_equal" CHECK (
           "winning_initiative_id" != "losing_initiative_id" OR
           ( ("winning_initiative_id" NOTNULL AND "losing_initiative_id" ISNULL) OR
@@ -2034,7 +2042,13 @@ CREATE VIEW "battle_view" AS
         coalesce("better_vote"."grade", 0) >
         coalesce("worse_vote"."grade", 0)
       THEN "direct_voter"."weight" ELSE 0 END
-    ) AS "count"
+    ) AS "count",
+    sum(
+      CASE WHEN
+        coalesce("better_vote"."grade", 0) >
+        coalesce("worse_vote"."grade", 0)
+      THEN 1 ELSE 0 END
+    ) AS "direct_count"
   FROM "issue"
   LEFT JOIN "direct_voter"
   ON "issue"."id" = "direct_voter"."issue_id"
@@ -3570,10 +3584,15 @@ CREATE FUNCTION "close_voting"("issue_id_p" "issue"."id"%TYPE)
       UPDATE "issue" SET
         "state"  = 'calculation',
         "closed" = now(),
-        "voter_count" = (
-          SELECT coalesce(sum("weight"), 0)
-          FROM "direct_voter" WHERE "issue_id" = "issue_id_p"
-        )
+        "voter_count"        = "subquery"."voter_count",
+        "direct_voter_count" = "subquery"."direct_voter_count"
+        FROM (
+          SELECT
+            coalesce(sum("weight"), 0) AS "voter_count",
+            count(1)                   AS "direct_voter_count"
+          FROM "direct_voter"
+          WHERE "issue_id" = "issue_id_p"
+        ) AS "subquery"
         WHERE "id" = "issue_id_p";
       -- materialize battle_view:
       -- NOTE: "closed" column of issue must be set at this point
@@ -3581,16 +3600,18 @@ CREATE FUNCTION "close_voting"("issue_id_p" "issue"."id"%TYPE)
       INSERT INTO "battle" (
         "issue_id",
         "winning_initiative_id", "losing_initiative_id",
-        "count"
+        "count", "direct_count"
       ) SELECT
         "issue_id",
         "winning_initiative_id", "losing_initiative_id",
-        "count"
+        "count", "direct_count"
         FROM "battle_view" WHERE "issue_id" = "issue_id_p";
       -- copy "positive_votes" and "negative_votes" from "battle" table:
       UPDATE "initiative" SET
         "positive_votes" = "battle_win"."count",
-        "negative_votes" = "battle_lose"."count"
+        "negative_votes" = "battle_lose"."count",
+        "positive_direct_votes" = "battle_win"."direct_count",
+        "negative_direct_votes" = "battle_lose"."direct_count"
         FROM "battle" AS "battle_win", "battle" AS "battle_lose"
         WHERE
           "battle_win"."issue_id" = "issue_id_p" AND
