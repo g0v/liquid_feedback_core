@@ -45,7 +45,7 @@ CREATE FUNCTION "highlight"
 COMMENT ON FUNCTION "highlight"
   ( "body_p"       TEXT,
     "query_text_p" TEXT )
-  IS 'For a given a user query this function encapsulates all matches with asterisks. Asterisks and backslashes being already present are preceeded with one extra backslash.';
+  IS 'For a given user query this function encapsulates all matches with asterisks. Asterisks and backslashes being already present are preceeded with one extra backslash.';
 
 
 
