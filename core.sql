@@ -2328,7 +2328,7 @@ CREATE VIEW "event_seen_by_member" AS
   )
   AND "ignored_member"."member_id" ISNULL
   AND "ignored_initiative"."member_id" ISNULL
-  GROUP BY "member"."id", "event"."id", "event"."occurrence", "event"."event", "event"."member_id", "event"."issue_id", "event"."state", "event"."initiative_id", "event"."draft_id", "event"."suggestion_id";
+  GROUP BY "member"."id", "event"."id", "event"."occurrence", "event"."event", "event"."member_id", "event"."issue_id", "event"."state", "event"."initiative_id", "event"."draft_id", "event"."suggestion_id", "event"."argument_id";
 
 COMMENT ON VIEW "event_seen_by_member" IS 'Events as seen by a member, depending on its memberships, interests, support and members "notify_level"';
 
