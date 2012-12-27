@@ -189,10 +189,12 @@ CREATE TABLE "notify" (
         "discussion__initiative_created_in_existing_issue"   BOOLEAN NOT NULL DEFAULT FALSE,
         "discussion__new_draft_created"                      BOOLEAN NOT NULL DEFAULT FALSE,
         "discussion__suggestion_created"                     BOOLEAN NOT NULL DEFAULT FALSE,
+        "discussion__argument_created"                       BOOLEAN NOT NULL DEFAULT FALSE,
         "discussion__initiative_revoked"                     BOOLEAN NOT NULL DEFAULT FALSE,
         "canceled_after_revocation_during_discussion"        BOOLEAN NOT NULL DEFAULT FALSE,
         "verification"                                       BOOLEAN NOT NULL DEFAULT FALSE,
         "verification__initiative_created_in_existing_issue" BOOLEAN NOT NULL DEFAULT FALSE,
+        "verification__argument_created"                     BOOLEAN NOT NULL DEFAULT FALSE,
         "verification__initiative_revoked"                   BOOLEAN NOT NULL DEFAULT FALSE,
         "canceled_after_revocation_during_verification"      BOOLEAN NOT NULL DEFAULT FALSE,
         "canceled_no_initiative_admitted"                    BOOLEAN NOT NULL DEFAULT FALSE,
@@ -1227,7 +1229,8 @@ CREATE TYPE "event_type" AS ENUM (
         'initiative_created_in_existing_issue',
         'initiative_revoked',
         'new_draft_created',
-        'suggestion_created');
+        'suggestion_created',
+        'argument_created');
 
 COMMENT ON TYPE "event_type" IS 'Type used for column "event" of table "event"';
 
@@ -1242,6 +1245,7 @@ CREATE TABLE "event" (
         "initiative_id"         INT4,
         "draft_id"              INT8,
         "suggestion_id"         INT8,
+        "argument_id"           INT8,
         FOREIGN KEY ("issue_id", "initiative_id")
           REFERENCES "initiative" ("issue_id", "id")
           ON DELETE CASCADE ON UPDATE CASCADE,
@@ -1251,6 +1255,9 @@ CREATE TABLE "event" (
         FOREIGN KEY ("initiative_id", "suggestion_id")
           REFERENCES "suggestion" ("initiative_id", "id")
           ON DELETE CASCADE ON UPDATE CASCADE,
+        FOREIGN KEY ("initiative_id", "argument_id")
+          REFERENCES "argument" ("initiative_id", "id")
+          ON DELETE CASCADE ON UPDATE CASCADE,
         CONSTRAINT "null_constraints_for_issue_state_changed" CHECK (
           "event" != 'issue_state_changed' OR (
             "member_id"     ISNULL  AND
@@ -1258,7 +1265,8 @@ CREATE TABLE "event" (
             "state"         NOTNULL AND
             "initiative_id" ISNULL  AND
             "draft_id"      ISNULL  AND
-            "suggestion_id" ISNULL  )),
+            "suggestion_id" ISNULL  AND
+            "argument_id"   ISNULL  )),
         CONSTRAINT "null_constraints_for_initiative_creation_or_revocation_or_new_draft" CHECK (
           "event" NOT IN (
             'initiative_created_in_new_issue',
@@ -1271,6 +1279,7 @@ CREATE TABLE "event" (
             "state"         NOTNULL AND
             "initiative_id" NOTNULL AND
             "draft_id"      NOTNULL AND
+            "suggestion_id" ISNULL  AND
             "suggestion_id" ISNULL  )),
         CONSTRAINT "null_constraints_for_suggestion_creation" CHECK (
           "event" != 'suggestion_created' OR (
@@ -1279,7 +1288,15 @@ CREATE TABLE "event" (
             "state"         NOTNULL AND
             "initiative_id" NOTNULL AND
             "draft_id"      ISNULL  AND
-            "suggestion_id" NOTNULL )) );
+            "suggestion_id" NOTNULL )),
+        CONSTRAINT "null_constraints_for_argument_creation" CHECK (
+          "event" != 'argument_created' OR (
+            "member_id"     NOTNULL AND
+            "issue_id"      NOTNULL AND
+            "state"         NOTNULL AND
+            "initiative_id" NOTNULL AND
+            "draft_id"      ISNULL  AND
+            "argument_id"   NOTNULL )) );
 CREATE INDEX "event_occurrence_idx" ON "event" ("occurrence");
 
 COMMENT ON TABLE "event" IS 'Event table, automatically filled by triggers';
@@ -1466,6 +1483,38 @@ CREATE TRIGGER "write_event_suggestion_created"
 COMMENT ON FUNCTION "write_event_suggestion_created_trigger"()      IS 'Implementation of trigger "write_event_suggestion_created" on table "issue"';
 COMMENT ON TRIGGER "write_event_suggestion_created" ON "suggestion" IS 'Create entry in "event" table on suggestion creation';
 
+
+CREATE FUNCTION "write_event_argument_created_trigger"()
+  RETURNS TRIGGER
+  LANGUAGE 'plpgsql' VOLATILE AS $$
+    DECLARE
+      "initiative_row" "initiative"%ROWTYPE;
+      "issue_row"      "issue"%ROWTYPE;
+    BEGIN
+      SELECT * INTO "initiative_row" FROM "initiative"
+        WHERE "id" = NEW."initiative_id";
+      SELECT * INTO "issue_row" FROM "issue"
+        WHERE "id" = "initiative_row"."issue_id";
+      INSERT INTO "event" (
+          "event", "member_id",
+          "issue_id", "state", "initiative_id", "argument_id"
+        ) VALUES (
+          'argument_created',
+          NEW."author_id",
+          "initiative_row"."issue_id",
+          "issue_row"."state",
+          "initiative_row"."id",
+          NEW."id" );
+      RETURN NULL;
+    END;
+  $$;
+
+CREATE TRIGGER "write_event_argument_created"
+  AFTER INSERT ON "argument" FOR EACH ROW EXECUTE PROCEDURE
+  "write_event_argument_created_trigger"();
+
+COMMENT ON FUNCTION "write_event_argument_created_trigger"()      IS 'Implementation of trigger "write_event_argument_created" on table "issue"';
+COMMENT ON TRIGGER "write_event_argument_created" ON "argument" IS 'Create entry in "event" table on argument creation';
 
 
 ----------------------------
@@ -2248,6 +2297,8 @@ CREATE VIEW "event_seen_by_member" AS
           "event"."event" = 'new_draft_created'                    AND "event"."state" = 'discussion') OR
         ("notify"."discussion__suggestion_created" AND
           "event"."event" = 'suggestion_created'                   AND "event"."state" = 'discussion') OR
+        ("notify"."discussion__argument_created" AND
+          "event"."event" = 'argument_created'                     AND "event"."state" = 'discussion') OR
         ("notify"."discussion__initiative_revoked" AND
           "event"."event" = 'initiative_revoked'                   AND "event"."state" = 'discussion') OR
         ("notify"."canceled_after_revocation_during_discussion" AND
@@ -2257,6 +2308,8 @@ CREATE VIEW "event_seen_by_member" AS
           "event"."event" = 'issue_state_changed'                  AND "event"."state" = 'verification') OR
         ("notify"."verification__initiative_created_in_existing_issue" AND
           "event"."event" = 'initiative_created_in_existing_issue' AND "event"."state" = 'verification') OR
+        ("notify"."discussion__argument_created" AND
+          "event"."event" = 'argument_created'                     AND "event"."state" = 'verification') OR
         ("notify"."verification__initiative_revoked" AND
           "event"."event" = 'initiative_revoked'                   AND "event"."state" = 'verification') OR
         ("notify"."canceled_after_revocation_during_verification" AND
@@ -2278,144 +2331,6 @@ CREATE VIEW "event_seen_by_member" AS
   GROUP BY "member"."id", "event"."id", "event"."occurrence", "event"."event", "event"."member_id", "event"."issue_id", "event"."state", "event"."initiative_id", "event"."draft_id", "event"."suggestion_id";
 
 COMMENT ON VIEW "event_seen_by_member" IS 'Events as seen by a member, depending on its memberships, interests, support and members "notify_level"';
-
-
-CREATE TYPE "timeline_event" AS ENUM (
-  'issue_created',
-  'issue_canceled',
-  'issue_accepted',
-  'issue_half_frozen',
-  'issue_finished_without_voting',
-  'issue_voting_started',
-  'issue_finished_after_voting',
-  'initiative_created',
-  'initiative_revoked',
-  'draft_created',
-  'suggestion_created');
-
-COMMENT ON TYPE "timeline_event" IS 'Types of event in timeline tables (DEPRECATED)';
-
-
-CREATE VIEW "timeline_issue" AS
-    SELECT
-      "created" AS "occurrence",
-      'issue_created'::"timeline_event" AS "event",
-      "id" AS "issue_id"
-    FROM "issue"
-  UNION ALL
-    SELECT
-      "closed" AS "occurrence",
-      'issue_canceled'::"timeline_event" AS "event",
-      "id" AS "issue_id"
-    FROM "issue" WHERE "closed" NOTNULL AND "fully_frozen" ISNULL
-  UNION ALL
-    SELECT
-      "accepted" AS "occurrence",
-      'issue_accepted'::"timeline_event" AS "event",
-      "id" AS "issue_id"
-    FROM "issue" WHERE "accepted" NOTNULL
-  UNION ALL
-    SELECT
-      "half_frozen" AS "occurrence",
-      'issue_half_frozen'::"timeline_event" AS "event",
-      "id" AS "issue_id"
-    FROM "issue" WHERE "half_frozen" NOTNULL
-  UNION ALL
-    SELECT
-      "fully_frozen" AS "occurrence",
-      'issue_voting_started'::"timeline_event" AS "event",
-      "id" AS "issue_id"
-    FROM "issue"
-    WHERE "fully_frozen" NOTNULL
-    AND ("closed" ISNULL OR "closed" != "fully_frozen")
-  UNION ALL
-    SELECT
-      "closed" AS "occurrence",
-      CASE WHEN "fully_frozen" = "closed" THEN
-        'issue_finished_without_voting'::"timeline_event"
-      ELSE
-        'issue_finished_after_voting'::"timeline_event"
-      END AS "event",
-      "id" AS "issue_id"
-    FROM "issue" WHERE "closed" NOTNULL AND "fully_frozen" NOTNULL;
-
-COMMENT ON VIEW "timeline_issue" IS 'Helper view for "timeline" view (DEPRECATED)';
-
-
-CREATE VIEW "timeline_initiative" AS
-    SELECT
-      "created" AS "occurrence",
-      'initiative_created'::"timeline_event" AS "event",
-      "id" AS "initiative_id"
-    FROM "initiative"
-  UNION ALL
-    SELECT
-      "revoked" AS "occurrence",
-      'initiative_revoked'::"timeline_event" AS "event",
-      "id" AS "initiative_id"
-    FROM "initiative" WHERE "revoked" NOTNULL;
-
-COMMENT ON VIEW "timeline_initiative" IS 'Helper view for "timeline" view (DEPRECATED)';
-
-
-CREATE VIEW "timeline_draft" AS
-  SELECT
-    "created" AS "occurrence",
-    'draft_created'::"timeline_event" AS "event",
-    "id" AS "draft_id"
-  FROM "draft";
-
-COMMENT ON VIEW "timeline_draft" IS 'Helper view for "timeline" view (DEPRECATED)';
-
-
-CREATE VIEW "timeline_suggestion" AS
-  SELECT
-    "created" AS "occurrence",
-    'suggestion_created'::"timeline_event" AS "event",
-    "id" AS "suggestion_id"
-  FROM "suggestion";
-
-COMMENT ON VIEW "timeline_suggestion" IS 'Helper view for "timeline" view (DEPRECATED)';
-
-
-CREATE VIEW "timeline" AS
-    SELECT
-      "occurrence",
-      "event",
-      "issue_id",
-      NULL AS "initiative_id",
-      NULL::INT8 AS "draft_id",  -- TODO: Why do we need a type-cast here? Is this due to 32 bit architecture?
-      NULL::INT8 AS "suggestion_id"
-    FROM "timeline_issue"
-  UNION ALL
-    SELECT
-      "occurrence",
-      "event",
-      NULL AS "issue_id",
-      "initiative_id",
-      NULL AS "draft_id",
-      NULL AS "suggestion_id"
-    FROM "timeline_initiative"
-  UNION ALL
-    SELECT
-      "occurrence",
-      "event",
-      NULL AS "issue_id",
-      NULL AS "initiative_id",
-      "draft_id",
-      NULL AS "suggestion_id"
-    FROM "timeline_draft"
-  UNION ALL
-    SELECT
-      "occurrence",
-      "event",
-      NULL AS "issue_id",
-      NULL AS "initiative_id",
-      NULL AS "draft_id",
-      "suggestion_id"
-    FROM "timeline_suggestion";
-
-COMMENT ON VIEW "timeline" IS 'Aggregation of different events in the system (DEPRECATED)';
 
 
 
