@@ -8,6 +8,16 @@ server.modules += ("mod_cgi", "mod_rewrite", "mod_setenv")
 
 # Redirect to main host name
 $HTTP["host"] != "feedback.example.com" {
+  # Short links
+  $HTTP["host"] == "short.example.com" {
+    url.redirect = (
+      "^/i(\d+)$" => "https://feedback.example.com/initiative/show/$1.html",
+      "^/t(\d+)$" => "https://feedback.example.com/issue/show/$1.html",
+      "^/s(\d+)$" => "https://feedback.example.com/suggestion/show/$1.html",
+      "^/a(\d+)$" => "https://feedback.example.com/argument/show/$1.html",
+      "^/v(\d+)$" => "https://feedback.example.com/vote/list.html?issue_id=$1"
+    )
+  }
   url.redirect = (".*" => "https://feedback.example.com/")
 }
 # http => https
