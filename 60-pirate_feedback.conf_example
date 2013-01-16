@@ -21,7 +21,7 @@ $HTTP["host"] != "feedback.example.com" {
   url.redirect = (".*" => "https://feedback.example.com/")
 }
 # http => https
-$HTTP["scheme"] != "https" {
+else $HTTP["scheme"] != "https" {
   url.redirect = (".*" => "https://feedback.example.com/")
 }
 
