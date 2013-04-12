@@ -93,6 +93,7 @@ CREATE TABLE "member" (
         "login"                 TEXT            UNIQUE,
         "password"              TEXT,
         "locked"                BOOLEAN         NOT NULL DEFAULT FALSE,
+        "locked_import"         BOOLEAN         NOT NULL DEFAULT FALSE,
         "active"                BOOLEAN         NOT NULL DEFAULT FALSE,
         "admin"                 BOOLEAN         NOT NULL DEFAULT FALSE,
         "lang"                  TEXT,
@@ -148,6 +149,7 @@ COMMENT ON COLUMN "member"."last_login"           IS 'Timestamp of last login';
 COMMENT ON COLUMN "member"."login"                IS 'Login name';
 COMMENT ON COLUMN "member"."password"             IS 'Password (preferably as crypto-hash, depending on the frontend or access layer)';
 COMMENT ON COLUMN "member"."locked"               IS 'Locked members can not log in.';
+COMMENT ON COLUMN "member"."locked_import"        IS 'By the import locked members can not log in.';
 COMMENT ON COLUMN "member"."active"               IS 'Memberships, support and votes are taken into account when corresponding members are marked as active. Automatically set to FALSE, if "last_activity" is older than "system_setting"."member_ttl".';
 COMMENT ON COLUMN "member"."admin"                IS 'TRUE for admins, which can administrate other users and setup policies and areas';
 COMMENT ON COLUMN "member"."lang"                 IS 'Language code of the preferred language of the member';
