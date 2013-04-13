@@ -18,7 +18,9 @@ echo "${PID}" > "${PIDFILE}"
 
 while true; do
 
-  su - $dbuser -c "nice $path/liquid_feedback_core/lf_update dbname=$dbname 2>&1 | logger -t 'lf_updated'"
+  su - $dbuser -c "nice $path/liquid_feedback_core/lf_update dbname=$dbname 2>&1 | logger -t 'lf_update'"
+
+  su - $dbuser -c "nice $path/liquid_feedback_core/lf_update_suggestion_order dbname=$dbname 2>&1 | logger -t 'lf_update_suggestion_order'"
 
   # sleep depending on load
   # load 0.1 ->   35s
