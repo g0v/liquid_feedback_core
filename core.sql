@@ -1209,7 +1209,7 @@ CREATE INDEX "delegating_voter_member_id_idx" ON "delegating_voter" ("member_id"
 COMMENT ON TABLE "delegating_voter" IS 'Delegations increasing the weight of entries in the "direct_voter" table';
 
 COMMENT ON COLUMN "delegating_voter"."member_id"           IS 'Delegating member';
-COMMENT ON COLUMN "delegating_voter"."delegate_member_id"  IS 'Members who acts as delegate; referes to "member_id" column of table "direct_voter"';
+COMMENT ON COLUMN "delegating_voter"."delegate_member_id"  IS 'Member who acts as delegate; referes to "member_id" column of table "direct_voter"';
 
 
 CREATE TABLE "vote" (
