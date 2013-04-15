@@ -393,6 +393,8 @@ CREATE TABLE "policy" (
         "voting_time"           INTERVAL,
         "issue_quorum_num"      INT4,
         "issue_quorum_den"      INT4,
+        "issue_quorum_direct_num" INT4,
+        "issue_quorum_direct_den" INT4,
         "initiative_quorum_num" INT4            NOT NULL,
         "initiative_quorum_den" INT4            NOT NULL,
         "direct_majority_num"           INT4    NOT NULL DEFAULT 1,
@@ -433,7 +435,9 @@ COMMENT ON COLUMN "policy"."verification_time"     IS 'Duration of issue state '
 COMMENT ON COLUMN "policy"."voting_time"           IS 'Duration of issue state ''voting''; Time after an issue is "fully_frozen" but not "closed" (duration of issue state ''voting'')';
 COMMENT ON COLUMN "policy"."issue_quorum_num"      IS   'Numerator of potential supporter quorum to be reached by one initiative of an issue to be "accepted" and enter issue state ''discussion''';
 COMMENT ON COLUMN "policy"."issue_quorum_den"      IS 'Denominator of potential supporter quorum to be reached by one initiative of an issue to be "accepted" and enter issue state ''discussion''';
-COMMENT ON COLUMN "policy"."initiative_quorum_num" IS   'Numerator of satisfied supporter quorum  to be reached by an initiative to be "admitted" for voting';
+COMMENT ON COLUMN "policy"."issue_quorum_direct_num" IS   'Numerator of potential direct supporter quorum to be reached by one initiative of an issue to be "accepted" and enter issue state ''discussion''';
+COMMENT ON COLUMN "policy"."issue_quorum_direct_den" IS 'Denominator of potential direct supporter quorum to be reached by one initiative of an issue to be "accepted" and enter issue state ''discussion''';
+COMMENT ON COLUMN "policy"."initiative_quorum_num" IS   'Numerator of satisfied supporter quorum to be reached by an initiative to be "admitted" for voting';
 COMMENT ON COLUMN "policy"."initiative_quorum_den" IS 'Denominator of satisfied supporter quorum to be reached by an initiative to be "admitted" for voting';
 COMMENT ON COLUMN "policy"."direct_majority_num"            IS 'Numerator of fraction of neccessary direct majority for initiatives to be attainable as winner';
 COMMENT ON COLUMN "policy"."direct_majority_den"            IS 'Denominator of fraction of neccessary direct majority for initaitives to be attainable as winner';
@@ -659,8 +663,10 @@ CREATE TABLE "initiative" (
         "suggested_initiative_id" INT4          REFERENCES "initiative" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
         "admitted"              BOOLEAN,
         "supporter_count"                    INT4,
+        "direct_supporter_count"             INT4,
         "informed_supporter_count"           INT4,
         "satisfied_supporter_count"          INT4,
+        "satisfied_direct_supporter_count"   INT4,
         "satisfied_informed_supporter_count" INT4,
         "harmonic_weight"       NUMERIC(12, 3),
         "final_suggestion_order_calculated" BOOLEAN NOT NULL DEFAULT FALSE,
@@ -719,8 +725,10 @@ COMMENT ON COLUMN "initiative"."revoked"                IS 'Point in time, when 
 COMMENT ON COLUMN "initiative"."revoked_by_member_id"   IS 'Member, who decided to revoke the initiative';
 COMMENT ON COLUMN "initiative"."admitted"               IS 'TRUE, if initiative reaches the "initiative_quorum" when freezing the issue';
 COMMENT ON COLUMN "initiative"."supporter_count"                    IS 'Calculated from table "direct_supporter_snapshot"';
+COMMENT ON COLUMN "initiative"."direct_supporter_count"             IS 'Calculated from table "direct_supporter_snapshot"';
 COMMENT ON COLUMN "initiative"."informed_supporter_count"           IS 'Calculated from table "direct_supporter_snapshot"';
 COMMENT ON COLUMN "initiative"."satisfied_supporter_count"          IS 'Calculated from table "direct_supporter_snapshot"';
+COMMENT ON COLUMN "initiative"."satisfied_direct_supporter_count"   IS 'Calculated from table "direct_supporter_snapshot"';
 COMMENT ON COLUMN "initiative"."satisfied_informed_supporter_count" IS 'Calculated from table "direct_supporter_snapshot"';
 COMMENT ON COLUMN "initiative"."harmonic_weight"        IS 'Indicates the relevancy of the initiative, calculated from the potential supporters weighted with the harmonic series to avoid a large number of clones affecting other initiative''s sorting positions too much; shall be used as secondary sorting key after "admitted" as primary sorting key';
 COMMENT ON COLUMN "initiative"."final_suggestion_order_calculated" IS 'Set to TRUE, when "proportional_order" of suggestions has been calculated the last time';
@@ -3313,6 +3321,12 @@ CREATE FUNCTION "create_snapshot"
             AND "ds"."initiative_id" = "initiative_id_v"
             AND "ds"."event" = 'periodic'
           ),
+          "direct_supporter_count" = (
+            SELECT count(1)
+            FROM "direct_supporter_snapshot"
+            WHERE "initiative_id" = "initiative_id_v"
+            AND "event" = 'periodic'
+          ),
           "informed_supporter_count" = (
             SELECT coalesce(sum("di"."weight"), 0)
             FROM "direct_interest_snapshot" AS "di"
@@ -3334,6 +3348,13 @@ CREATE FUNCTION "create_snapshot"
             AND "ds"."initiative_id" = "initiative_id_v"
             AND "ds"."event" = 'periodic'
             AND "ds"."satisfied"
+          ),
+          "satisfied_direct_supporter_count" = (
+            SELECT count(1)
+            FROM "direct_supporter_snapshot"
+            WHERE "initiative_id" = "initiative_id_v"
+            AND "event" = 'periodic'
+            AND "satisfied"
           ),
           "satisfied_informed_supporter_count" = (
             SELECT coalesce(sum("di"."weight"), 0)
@@ -4171,9 +4192,12 @@ CREATE FUNCTION "check_issue"
         IF EXISTS (
           SELECT NULL FROM "initiative"
           WHERE "issue_id" = "issue_id_p"
-          AND "supporter_count" > 0
-          AND "supporter_count" * "policy_row"."issue_quorum_den"
-          >= "issue_row"."population" * "policy_row"."issue_quorum_num"
+          AND "supporter_count"        > 0
+          AND "supporter_count"        * "policy_row"."issue_quorum_den"
+          >= "issue_row"."population"  * "policy_row"."issue_quorum_num"
+          AND "direct_supporter_count" > 0
+          AND "direct_supporter_count" * "policy_row"."issue_quorum_direct_den"
+          >= "issue_row"."population"  * "policy_row"."issue_quorum_direct_num"
         ) THEN
           UPDATE "issue" SET
             "state"          = 'discussion',
