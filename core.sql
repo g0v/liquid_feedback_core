@@ -719,6 +719,7 @@ CREATE TRIGGER "update_text_search_data"
 
 COMMENT ON TABLE "initiative" IS 'Group of members publishing drafts for resolutions to be passed; Frontends must ensure that initiatives of half_frozen issues are not revoked, and that initiatives of fully_frozen or closed issues are neither revoked nor created.';
 
+COMMENT ON COLUMN "initiative"."name"                   IS 'Copied from "draft" table at creation of draft';
 COMMENT ON COLUMN "initiative"."polling"                IS 'Initiative does not need to pass the initiative quorum (see "policy"."polling")';
 COMMENT ON COLUMN "initiative"."discussion_url"         IS 'URL pointing to a discussion platform for this initiative';
 COMMENT ON COLUMN "initiative"."revoked"                IS 'Point in time, when one initiator decided to revoke the initiative';
@@ -792,6 +793,7 @@ CREATE TABLE "draft" (
         "id"                    SERIAL8         PRIMARY KEY,
         "created"               TIMESTAMPTZ     NOT NULL DEFAULT now(),
         "author_id"             INT4            NOT NULL REFERENCES "member" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+        "name"                  TEXT            NOT NULL,
         "formatting_engine"     TEXT,
         "content"               TEXT            NOT NULL,
         "text_search_data"      TSVECTOR );
@@ -1368,6 +1370,8 @@ CREATE FUNCTION "write_event_initiative_or_draft_created_trigger"()
     BEGIN
       SELECT * INTO "initiative_row" FROM "initiative"
         WHERE "id" = NEW."initiative_id";
+      -- copy name from draft to initiative
+      UPDATE "initiative" SET "name" = NEW."name" WHERE "id" = "initiative_row"."id";
       SELECT * INTO "issue_row" FROM "issue"
         WHERE "id" = "initiative_row"."issue_id";
       IF EXISTS (
@@ -1406,7 +1410,7 @@ CREATE TRIGGER "write_event_initiative_or_draft_created"
   "write_event_initiative_or_draft_created_trigger"();
 
 COMMENT ON FUNCTION "write_event_initiative_or_draft_created_trigger"() IS 'Implementation of trigger "write_event_initiative_or_draft_created" on table "issue"';
-COMMENT ON TRIGGER "write_event_initiative_or_draft_created" ON "draft" IS 'Create entry in "event" table on draft creation';
+COMMENT ON TRIGGER "write_event_initiative_or_draft_created" ON "draft" IS 'Create entry in "event" table and copy name to initiative on draft creation';
 
 
 CREATE FUNCTION "write_event_initiative_revoked_trigger"()

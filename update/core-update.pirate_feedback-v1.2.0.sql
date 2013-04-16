@@ -10,6 +10,8 @@
 
 BEGIN;
 
+-- changes from liquid feedback core v2.0.12 to v2.2.3
+
 ALTER TABLE "privilege" RENAME COLUMN "voting_right_manager" TO "member_manager";
 ALTER TABLE "privilege" ADD COLUMN "initiative_right" BOOLEAN NOT NULL DEFAULT TRUE;
 UPDATE "privilege" SET "initiative_right" = "voting_right";
@@ -26,5 +28,10 @@ ALTER TABLE "issue" DROP COLUMN "ranks_available";
 ALTER TABLE "policy"     ADD COLUMN "polling" BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE "initiative" ADD COLUMN "polling" BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE "contingent" ADD COLUMN "polling" BOOLEAN DEFAULT FALSE;
+
+-- pirate feedback changes
+
+ALTER TABLE "draft" ADD COLUMN "name" TEXT;
+UPDATE "draft" SET "name" = "initiative"."name" FROM "initiative" WHERE "draft"."initiative_id" = "initiative"."id";
 
 COMMIT;
