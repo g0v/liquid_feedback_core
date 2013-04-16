@@ -1,5 +1,4 @@
 -- Convert a database from Pirate Feedback v1.0.0-1.1.3 to v1.2.0
--- (might also work with other versions)
 
 -- See INSTALL for instructions!
 -- After running this script the database schema must be recreated.

@@ -1,5 +1,4 @@
--- Convert a database from Liquid Feedback Core v2.0.12 to Pirate Feedback v1.0.0
--- (might also work with other versions)
+-- Convert a database from Liquid Feedback Core v2.2.3 to Pirate Feedback v1.2.0
 
 -- See INSTALL for instructions!
 -- After running this script the database schema must be recreated.
@@ -22,7 +21,7 @@ ALTER TABLE "delegation"
   ADD UNIQUE ("area_id",  "truster_id", "trustee_id"),
   ADD UNIQUE ("issue_id", "truster_id", "trustee_id");
 
-CREATE FUNCTION delegation_insert()
+CREATE FUNCTION "autoincrement_delegation_preference_trigger"()
   RETURNS TRIGGER
   LANGUAGE 'plpgsql' VOLATILE AS $$
     BEGIN
@@ -36,10 +35,8 @@ CREATE FUNCTION delegation_insert()
       RETURN NEW;
     END;
   $$;
-
-CREATE TRIGGER delegation_insert
-BEFORE INSERT ON "delegation"
-FOR EACH ROW EXECUTE PROCEDURE delegation_insert();
+CREATE TRIGGER "autoincrement_delegation_preference" BEFORE INSERT ON "delegation"
+  FOR EACH ROW EXECUTE PROCEDURE "autoincrement_delegation_preference_trigger"();
 
 CREATE FUNCTION "delegation_chains_to_preference_lists"()
   RETURNS VOID
@@ -108,6 +105,12 @@ ALTER TABLE "delegating_interest_snapshot"
 ALTER TABLE "delegating_voter"
   DROP "delegate_member_ids",
   DROP "weight";
+
+
+-- copy initiative names to drafts
+
+ALTER TABLE "draft" ADD COLUMN "name" TEXT;
+UPDATE "draft" SET "name" = "initiative"."name" FROM "initiative" WHERE "draft"."initiative_id" = "initiative"."id";
 
 
 COMMIT;
