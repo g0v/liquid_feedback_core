@@ -1056,27 +1056,6 @@ COMMENT ON COLUMN "delegation"."area_id"  IS 'Reference to area, if delegation i
 COMMENT ON COLUMN "delegation"."issue_id" IS 'Reference to issue, if delegation is issue-wide, otherwise NULL';
 COMMENT ON COLUMN "delegation"."preference" IS 'Preference rank in list of trustees';
 
--- auto increment preference
-
-CREATE FUNCTION delegation_insert()
-  RETURNS TRIGGER
-  LANGUAGE 'plpgsql' VOLATILE AS $$
-    BEGIN
-      SELECT COALESCE(MAX(preference), 0) + 1
-        INTO NEW.preference
-        FROM "delegation"
-        WHERE truster_id = NEW.truster_id
-          AND (NEW.unit_id ISNULL OR unit_id = NEW.unit_id)
-          AND (NEW.area_id ISNULL OR area_id = NEW.area_id)
-          AND (NEW.issue_id ISNULL OR issue_id = NEW.issue_id);
-      RETURN NEW;
-    END;
-  $$;
-
-CREATE TRIGGER delegation_insert
-BEFORE INSERT ON "delegation"
-FOR EACH ROW EXECUTE PROCEDURE delegation_insert();
-
 
 CREATE TABLE "direct_population_snapshot" (
         PRIMARY KEY ("issue_id", "event", "member_id"),
@@ -1940,6 +1919,27 @@ COMMENT ON FUNCTION "default_for_draft_id_trigger"() IS 'Implementation of trigg
 COMMENT ON TRIGGER "default_for_draft_id" ON "suggestion" IS 'If "draft_id" is NULL, then use the current draft of the initiative as default';
 COMMENT ON TRIGGER "default_for_draft_id" ON "supporter"  IS 'If "draft_id" is NULL, then use the current draft of the initiative as default';
 
+
+CREATE FUNCTION "autoincrement_delegation_preference_trigger"()
+  RETURNS TRIGGER
+  LANGUAGE 'plpgsql' VOLATILE AS $$
+    BEGIN
+      SELECT COALESCE(MAX(preference), 0) + 1
+        INTO NEW.preference
+        FROM "delegation"
+        WHERE truster_id = NEW.truster_id
+          AND (NEW.unit_id ISNULL OR unit_id = NEW.unit_id)
+          AND (NEW.area_id ISNULL OR area_id = NEW.area_id)
+          AND (NEW.issue_id ISNULL OR issue_id = NEW.issue_id);
+      RETURN NEW;
+    END;
+  $$;
+
+CREATE TRIGGER "autoincrement_delegation_preference" BEFORE INSERT ON "delegation"
+  FOR EACH ROW EXECUTE PROCEDURE "autoincrement_delegation_preference_trigger"();
+
+COMMENT ON FUNCTION "autoincrement_delegation_preference_trigger"() IS 'Implementation of trigger "autoincrement_delegation_preference" on table "delegation"';
+COMMENT ON TRIGGER "autoincrement_delegation_preference" ON "delegation" IS 'A new delegation gets the next preference value up';
 
 
 ----------------------------------------
