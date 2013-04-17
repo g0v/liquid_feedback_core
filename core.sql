@@ -77,7 +77,7 @@ COMMENT ON COLUMN "system_setting"."member_ttl" IS 'Time after members get their
 
 CREATE TABLE "contingent" (
         PRIMARY KEY ("polling", "time_frame"),
-        "polling"               BOOLEAN,
+        "polling"               BOOLEAN NOT NULL DEFAULT FALSE,
         "time_frame"            INTERVAL,
         "text_entry_limit"      INT4,
         "initiative_limit"      INT4 );
