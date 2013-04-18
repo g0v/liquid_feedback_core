@@ -391,6 +391,7 @@ CREATE TABLE "policy" (
         "discussion_time"       INTERVAL,
         "verification_time"     INTERVAL,
         "voting_time"           INTERVAL,
+        "delegation"            BOOLEAN         NOT NULL DEFAULT TRUE,
         "issue_quorum_num"      INT4,
         "issue_quorum_den"      INT4,
         "issue_quorum_direct_num" INT4,
@@ -433,6 +434,7 @@ COMMENT ON COLUMN "policy"."admission_time"        IS 'Maximum duration of issue
 COMMENT ON COLUMN "policy"."discussion_time"       IS 'Duration of issue state ''discussion''; Regular time until an issue is "half_frozen" after being "accepted"';
 COMMENT ON COLUMN "policy"."verification_time"     IS 'Duration of issue state ''verification''; Regular time until an issue is "fully_frozen" (e.g. entering issue state ''voting'') after being "half_frozen"';
 COMMENT ON COLUMN "policy"."voting_time"           IS 'Duration of issue state ''voting''; Time after an issue is "fully_frozen" but not "closed" (duration of issue state ''voting'')';
+COMMENT ON COLUMN "policy"."delegation"            IS 'Enable delegation';
 COMMENT ON COLUMN "policy"."issue_quorum_num"      IS   'Numerator of potential supporter quorum to be reached by one initiative of an issue to be "accepted" and enter issue state ''discussion''';
 COMMENT ON COLUMN "policy"."issue_quorum_den"      IS 'Denominator of potential supporter quorum to be reached by one initiative of an issue to be "accepted" and enter issue state ''discussion''';
 COMMENT ON COLUMN "policy"."issue_quorum_direct_num" IS   'Numerator of potential direct supporter quorum to be reached by one initiative of an issue to be "accepted" and enter issue state ''discussion''';
@@ -459,6 +461,7 @@ CREATE TABLE "unit" (
         "active"                BOOLEAN         NOT NULL DEFAULT TRUE,
         "name"                  TEXT            NOT NULL,
         "description"           TEXT            NOT NULL DEFAULT '',
+        "delegation"            BOOLEAN         NOT NULL DEFAULT TRUE,
         "member_count"          INT4,
         "text_search_data"      TSVECTOR );
 CREATE INDEX "unit_root_idx" ON "unit" ("id") WHERE "parent_id" ISNULL;
@@ -475,6 +478,7 @@ COMMENT ON TABLE "unit" IS 'Organizational units organized as trees; Delegations
 
 COMMENT ON COLUMN "unit"."parent_id"    IS 'Parent id of tree node; Multiple roots allowed';
 COMMENT ON COLUMN "unit"."active"       IS 'TRUE means new issues can be created in areas of this unit';
+COMMENT ON COLUMN "unit"."delegation"   IS 'Enable delegation';
 COMMENT ON COLUMN "unit"."member_count" IS 'Count of members as determined by column "voting_right" in table "privilege"';
 
 
@@ -494,6 +498,7 @@ CREATE TABLE "area" (
         "active"                BOOLEAN         NOT NULL DEFAULT TRUE,
         "name"                  TEXT            NOT NULL,
         "description"           TEXT            NOT NULL DEFAULT '',
+        "delegation"            BOOLEAN         NOT NULL DEFAULT TRUE,
         "direct_member_count"   INT4,
         "member_weight"         INT4,
         "text_search_data"      TSVECTOR );
@@ -509,6 +514,7 @@ CREATE TRIGGER "update_text_search_data"
 COMMENT ON TABLE "area" IS 'Subject areas';
 
 COMMENT ON COLUMN "area"."active"              IS 'TRUE means new issues can be created in this area';
+COMMENT ON COLUMN "unit"."delegation"          IS 'Enable delegation';
 COMMENT ON COLUMN "area"."direct_member_count" IS 'Number of active members of that area (ignoring their weight), as calculated from view "area_member_count"';
 COMMENT ON COLUMN "area"."member_weight"       IS 'Obsolete';
 
@@ -568,6 +574,7 @@ CREATE TABLE "issue" (
         "discussion_time"       INTERVAL        NOT NULL,
         "verification_time"     INTERVAL        NOT NULL,
         "voting_time"           INTERVAL        NOT NULL,
+        "delegation"            BOOLEAN         NOT NULL DEFAULT TRUE,
         "snapshot"              TIMESTAMPTZ,
         "latest_snapshot_event" "snapshot_event",
         "population"            INT4,
@@ -632,6 +639,7 @@ COMMENT ON COLUMN "issue"."admission_time"          IS 'Copied from "policy" tab
 COMMENT ON COLUMN "issue"."discussion_time"         IS 'Copied from "policy" table at creation of issue';
 COMMENT ON COLUMN "issue"."verification_time"       IS 'Copied from "policy" table at creation of issue';
 COMMENT ON COLUMN "issue"."voting_time"             IS 'Copied from "policy" table at creation of issue';
+COMMENT ON COLUMN "issue"."delegation"              IS 'Copied from "policy" table at creation of issue; Must not be changed once an issue has been created';
 COMMENT ON COLUMN "issue"."snapshot"                IS 'Point in time, when snapshot tables have been updated and "population" and *_count values were precalculated';
 COMMENT ON COLUMN "issue"."latest_snapshot_event"   IS 'Event type of latest snapshot for issue; Can be used to select the latest snapshot data in the snapshot tables';
 COMMENT ON COLUMN "issue"."population"              IS 'Sum of "weight" column in table "direct_population_snapshot"';
@@ -1742,6 +1750,99 @@ COMMENT ON FUNCTION "voter_comment_fields_only_set_when_voter_comment_is_set_tri
 COMMENT ON TRIGGER "voter_comment_fields_only_set_when_voter_comment_is_set" ON "direct_voter" IS 'If "comment" is set to NULL, then other comment related fields are also set to NULL.';
 
 
+CREATE FUNCTION "unit_enable_delegation_trigger"()
+  RETURNS TRIGGER
+  LANGUAGE 'plpgsql' VOLATILE AS $$
+    BEGIN
+      IF NEW."delegation" = FALSE THEN
+        IF EXISTS (
+          SELECT NULL FROM "delegation" WHERE "unit_id" = NEW."id"
+        ) THEN
+          RAISE EXCEPTION 'Cannot switch off delegation for unit with existing delegations of that unit.';
+        END IF;
+        IF EXISTS (
+          SELECT NULL FROM "area" WHERE "unit_id" = NEW."id" AND "delegation" = TRUE
+        ) THEN
+          RAISE EXCEPTION 'Cannot switch off delegation for unit with delegation enabled for an area of that unit.';
+        END IF;
+      END IF;
+      RETURN NULL;
+    END;
+  $$;
+
+CREATE CONSTRAINT TRIGGER "unit_enable_delegation"
+  AFTER INSERT OR UPDATE ON "unit" DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE PROCEDURE
+  "unit_enable_delegation_trigger"();
+
+COMMENT ON FUNCTION "unit_enable_delegation_trigger"() IS 'Implementation of trigger "unit_enable_delegation" on table "unit"';
+COMMENT ON TRIGGER "unit_enable_delegation" ON "unit" IS 'Ensure that delegation for a unit can only be switched off if there is no delegation set for that unit and no area in that unit has delegation enabled';
+
+
+CREATE FUNCTION "area_enable_delegation_trigger"()
+  RETURNS TRIGGER
+  LANGUAGE 'plpgsql' VOLATILE AS $$
+    BEGIN
+      IF NEW."delegation" = FALSE THEN
+        IF EXISTS (
+          SELECT NULL FROM "delegation" WHERE "area_id" = NEW."id"
+        ) THEN
+          RAISE EXCEPTION 'Cannot switch off delegation for area with existing delegations of that area.';
+        END IF;
+        IF EXISTS (
+          SELECT NULL FROM "allowed_policy"
+            JOIN "policy" ON "allowed_policy"."policy_id" = "policy"."id"
+            WHERE "area_id" = NEW."id" AND "delegation" = TRUE
+        ) THEN
+          RAISE EXCEPTION 'Cannot switch off delegation for area while there are policies with delegation allowed in that area.';
+        END IF;
+        IF EXISTS (
+          SELECT NULL FROM "issue" WHERE "area_id" = NEW."id" AND "closed" ISNULL AND "delegation" = TRUE
+        ) THEN
+          RAISE EXCEPTION 'Cannot switch off delegation for area while there are open issues in that area with delegation enabled.';
+        END IF;
+      ELSE
+        IF EXISTS (
+          SELECT NULL FROM "unit" WHERE "id" = NEW."unit_id" AND "delegation" = FALSE
+        ) THEN
+          RAISE EXCEPTION 'Cannot switch on delegation for area while delegation is disabled for the unit.';
+        END IF;
+      END IF;
+      RETURN NULL;
+    END;
+  $$;
+
+CREATE CONSTRAINT TRIGGER "area_enable_delegation"
+  AFTER INSERT OR UPDATE ON "area" DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE PROCEDURE
+  "area_enable_delegation_trigger"();
+
+COMMENT ON FUNCTION "area_enable_delegation_trigger"() IS 'Implementation of trigger "area_enable_delegation" on table "area"';
+COMMENT ON TRIGGER "area_enable_delegation" ON "area" IS 'Ensure that delegation for an area can only be switched off if there is no delegation set for that area and no open issue in that area has delegation enabled and that it can only be switched on if delegation is enabled for the unit';
+
+
+CREATE FUNCTION "policy_enable_delegation_trigger"()
+  RETURNS TRIGGER
+  LANGUAGE 'plpgsql' VOLATILE AS $$
+    BEGIN
+      IF EXISTS (
+        SELECT NULL FROM "issue" WHERE "policy_id" = NEW."id" AND "closed" ISNULL
+      ) THEN
+        RAISE EXCEPTION 'Cannot switch delegation on or off for policy while there are open issues using that policy.';
+      END IF;
+      RETURN NULL;
+    END;
+  $$;
+
+CREATE CONSTRAINT TRIGGER "policy_enable_delegation"
+  AFTER INSERT OR UPDATE ON "policy" DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE PROCEDURE
+  "policy_enable_delegation_trigger"();
+
+COMMENT ON FUNCTION "policy_enable_delegation_trigger"() IS 'Implementation of trigger "policy_enable_delegation" on table "policy"';
+COMMENT ON TRIGGER "policy_enable_delegation" ON "policy" IS 'Ensure that delegation for a policy is not switched on or off while there are open issues using that policy.';
+
+
 ---------------------------------------------------------------
 -- Ensure that votes are not modified when issues are closed --
 ---------------------------------------------------------------
@@ -1902,6 +2003,26 @@ COMMENT ON FUNCTION "copy_timings_trigger"() IS 'Implementation of trigger "copy
 COMMENT ON TRIGGER "copy_timings" ON "issue" IS 'If timing fields are NULL, copy values from policy.';
 
 
+CREATE FUNCTION "copy_enable_delegation_trigger"()
+  RETURNS TRIGGER
+  LANGUAGE 'plpgsql' VOLATILE AS $$
+    DECLARE
+      "policy_row" "policy"%ROWTYPE;
+    BEGIN
+      SELECT * INTO "policy_row" FROM "policy"
+        WHERE "id" = NEW."policy_id";
+      NEW."delegation" := "policy_row"."delegation";
+      RETURN NEW;
+    END;
+  $$;
+
+CREATE TRIGGER "copy_enable_delegation" BEFORE INSERT ON "issue"
+  FOR EACH ROW EXECUTE PROCEDURE "copy_enable_delegation_trigger"();
+
+COMMENT ON FUNCTION "copy_enable_delegation_trigger"() IS 'Implementation of trigger "copy_enable_delegation" on table "issue"';
+COMMENT ON TRIGGER "copy_enable_delegation" ON "issue" IS 'Copy enable delegation from policy on issue creation.';
+
+
 CREATE FUNCTION "default_for_draft_id_trigger"()
   RETURNS TRIGGER
   LANGUAGE 'plpgsql' VOLATILE AS $$
@@ -2029,7 +2150,7 @@ CREATE VIEW "unit_delegation" AS
   JOIN "privilege"
     ON "delegation"."unit_id" = "privilege"."unit_id"
     AND "delegation"."truster_id" = "privilege"."member_id"
-  WHERE "member"."active" AND "privilege"."voting_right"
+  WHERE "member"."active" AND "privilege"."voting_right" AND "unit"."delegation"
   ORDER BY
     "delegation"."truster_id",
     "delegation"."preference";
@@ -2053,7 +2174,7 @@ CREATE VIEW "area_delegation" AS
   JOIN "privilege"
     ON "area"."unit_id" = "privilege"."unit_id"
     AND "delegation"."truster_id" = "privilege"."member_id"
-  WHERE "member"."active" AND "privilege"."voting_right"
+  WHERE "member"."active" AND "privilege"."voting_right" AND "area"."delegation"
   ORDER BY
     "area"."id",
     "delegation"."truster_id",
@@ -2082,7 +2203,7 @@ CREATE VIEW "issue_delegation" AS
   JOIN "privilege"
     ON "area"."unit_id" = "privilege"."unit_id"
     AND "delegation"."truster_id" = "privilege"."member_id"
-  WHERE "member"."active" AND "privilege"."voting_right"
+  WHERE "member"."active" AND "privilege"."voting_right" AND "issue"."delegation"
   ORDER BY
     "issue"."id",
     "delegation"."truster_id",
@@ -2568,6 +2689,7 @@ CREATE FUNCTION "delegation_chain"
   LANGUAGE 'plpgsql' STABLE AS $$
     DECLARE
       "scope_v"            "delegation_scope";
+      "delegation_v"       BOOLEAN; -- delegation enabled
       "unit_id_v"          "unit"."id"%TYPE;
       "area_id_v"          "area"."id"%TYPE;
       "issue_row"          "issue"%ROWTYPE;
@@ -2587,13 +2709,14 @@ CREATE FUNCTION "delegation_chain"
         -- unit
         "scope_v" := 'unit';
         "unit_id_v" := "unit_id_p";
+        SELECT "delegation" INTO "delegation_v" FROM "unit" WHERE "id" = "unit_id_v";
       ELSIF
         "unit_id_p" ISNULL AND "area_id_p" NOTNULL AND "issue_id_p" ISNULL
       THEN
         -- area
         "scope_v" := 'area';
         "area_id_v" := "area_id_p";
-        SELECT "unit_id" INTO "unit_id_v" FROM "area" WHERE "id" = "area_id_v";
+        SELECT "unit_id", "delegation" INTO "unit_id_v", "delegation_v" FROM "area" WHERE "id" = "area_id_v";
       ELSIF
         "unit_id_p" ISNULL AND "area_id_p" ISNULL AND "issue_id_p" NOTNULL
       THEN
@@ -2613,8 +2736,9 @@ CREATE FUNCTION "delegation_chain"
           RETURN;
         END IF;
         "scope_v" := 'issue';
-        SELECT "area_id" INTO "area_id_v" FROM "issue" WHERE "id" = "issue_id_p";
-        SELECT "unit_id" INTO "unit_id_v" FROM "area"  WHERE "id" = "area_id_v";
+        "area_id_v"    := "issue_row"."area_id";
+        "delegation_v" := "issue_row"."delegation";
+        SELECT "unit_id" INTO "unit_id_v" FROM "area" WHERE "id" = "area_id_v";
       ELSE
         RAISE EXCEPTION 'Exactly one of unit_id_p, area_id_p, or issue_id_p must be NOTNULL.';
       END IF;
@@ -2650,78 +2774,82 @@ CREATE FUNCTION "delegation_chain"
 
       "output_rows" := "output_rows" || "output_row";
 
-      "output_row"."index" := 1;
+      IF "delegation_v" THEN
 
-      -- include parent scopes or not
-      IF "deep_p" THEN
-        "where_unit"  := TRUE;
-        "where_area"  := ("scope_v" = 'area' OR "scope_v" = 'issue');
-        "where_issue" := ("scope_v" = 'issue');
-      ELSE
-        "where_unit"  := ("scope_v" = 'unit');
-        "where_area"  := ("scope_v" = 'area');
-        "where_issue" := ("scope_v" = 'issue');
-      END IF;
+        "output_row"."index" := 1;
 
-      -- get the delegations
-      FOR "delegation_row" IN
-        SELECT * FROM "delegation"
-          WHERE "truster_id" = "member_id_p"
-          AND (
-            ("where_unit" AND "unit_id" = "unit_id_v") OR
-            ("where_area" AND "area_id" = "area_id_v") OR
-            ("where_issue" AND "issue_id" = "issue_id_p")
-          )
-          ORDER BY "scope" DESC, "preference"
-      LOOP
-
-        -- member_id
-        "output_row"."member_id" := "delegation_row"."trustee_id";
-
-        -- overridden
-        IF "output_row"."participation" ISNULL THEN
-          "output_row"."overridden" := NULL;
-        ELSIF "output_row"."participation" THEN
-          "output_row"."overridden" := TRUE;
+        -- include parent scopes or not
+        IF "deep_p" THEN
+          "where_unit"  := TRUE;
+          "where_area"  := ("scope_v" = 'area' OR "scope_v" = 'issue');
+          "where_issue" := ("scope_v" = 'issue');
+        ELSE
+          "where_unit"  := ("scope_v" = 'unit');
+          "where_area"  := ("scope_v" = 'area');
+          "where_issue" := ("scope_v" = 'issue');
         END IF;
 
-        -- scope_in
-        "output_row"."scope_in" := "output_row"."scope_out";
+        -- get the delegations
+        FOR "delegation_row" IN
+          SELECT * FROM "delegation"
+            WHERE "truster_id" = "member_id_p"
+            AND (
+              ("where_unit" AND "unit_id" = "unit_id_v") OR
+              ("where_area" AND "area_id" = "area_id_v") OR
+              ("where_issue" AND "issue_id" = "issue_id_p")
+            )
+            ORDER BY "scope" DESC, "preference"
+        LOOP
 
-        -- member_valid
-        "output_row"."member_valid" := EXISTS (
-          SELECT NULL FROM "member" JOIN "privilege"
-          ON "privilege"."member_id" = "member"."id"
-          AND "privilege"."unit_id" = "unit_id_v"
-          WHERE "id" = "output_row"."member_id"
-          AND "member"."active" AND "privilege"."voting_right"
-        );
+          -- member_id
+          "output_row"."member_id" := "delegation_row"."trustee_id";
 
-        -- participation
-        IF "scope_v" = 'issue' THEN
-          IF "output_row"."member_valid" THEN
-            IF "issue_row"."fully_frozen" ISNULL THEN
-              "output_row"."participation" := EXISTS (
-                SELECT NULL FROM "interest"
-                WHERE "issue_id" = "issue_id_p"
-                AND "member_id" = "output_row"."member_id"
-              );
+          -- overridden
+          IF "output_row"."participation" ISNULL THEN
+            "output_row"."overridden" := NULL;
+          ELSIF "output_row"."participation" THEN
+            "output_row"."overridden" := TRUE;
+          END IF;
+
+          -- scope_in
+          "output_row"."scope_in" := "output_row"."scope_out";
+
+          -- member_valid
+          "output_row"."member_valid" := EXISTS (
+            SELECT NULL FROM "member" JOIN "privilege"
+            ON "privilege"."member_id" = "member"."id"
+            AND "privilege"."unit_id" = "unit_id_v"
+            WHERE "id" = "output_row"."member_id"
+            AND "member"."active" AND "privilege"."voting_right"
+          );
+
+          -- participation
+          IF "scope_v" = 'issue' THEN
+            IF "output_row"."member_valid" THEN
+              IF "issue_row"."fully_frozen" ISNULL THEN
+                "output_row"."participation" := EXISTS (
+                  SELECT NULL FROM "interest"
+                  WHERE "issue_id" = "issue_id_p"
+                  AND "member_id" = "output_row"."member_id"
+                );
+              ELSE
+                "output_row"."participation" := NULL;
+              END IF;
             ELSE
-              "output_row"."participation" := NULL;
+              "output_row"."participation" := FALSE;
             END IF;
           ELSE
-            "output_row"."participation" := FALSE;
+            "output_row"."participation" := NULL;
           END IF;
-        ELSE
-          "output_row"."participation" := NULL;
-        END IF;
 
-        -- scope_out
-        "output_row"."scope_out" := "delegation_row"."scope";
+          -- scope_out
+          "output_row"."scope_out" := "delegation_row"."scope";
 
-        "output_rows" := "output_rows" || "output_row";
-        "output_row"."index" := "output_row"."index" + 1;
-      END LOOP;
+          "output_rows" := "output_rows" || "output_row";
+          "output_row"."index" := "output_row"."index" + 1;
+        END LOOP;
+
+      END IF;
 
       -- return rows
       "i" := 1;
