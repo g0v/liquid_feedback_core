@@ -382,7 +382,7 @@ COMMENT ON COLUMN "session"."motd_seen"         IS 'The last "message of the day
 
 CREATE TABLE "policy" (
         "id"                    SERIAL4         PRIMARY KEY,
-        "index"                 INT4            NOT NULL,
+        "index"                 SERIAL4         NOT NULL,
         "active"                BOOLEAN         NOT NULL DEFAULT TRUE,
         "name"                  TEXT            NOT NULL UNIQUE,
         "description"           TEXT            NOT NULL DEFAULT '',
@@ -1821,14 +1821,41 @@ COMMENT ON FUNCTION "area_enable_delegation_trigger"() IS 'Implementation of tri
 COMMENT ON TRIGGER "area_enable_delegation" ON "area" IS 'Ensure that delegation for an area can only be switched off if there is no delegation set for that area and no open issue in that area has delegation enabled and that it can only be switched on if delegation is enabled for the unit';
 
 
-CREATE FUNCTION "policy_enable_delegation_trigger"()
+CREATE FUNCTION "allowed_policy_delegation_trigger"()
   RETURNS TRIGGER
   LANGUAGE 'plpgsql' VOLATILE AS $$
     BEGIN
       IF EXISTS (
-        SELECT NULL FROM "issue" WHERE "policy_id" = NEW."id" AND "closed" ISNULL
+        SELECT NULL FROM "allowed_policy"
+          JOIN "policy" ON "allowed_policy"."policy_id" = "policy"."id"
+          JOIN "area"   ON "allowed_policy"."area_id"   = "area"."id"
+          WHERE "area"."delegation" = FALSE AND "policy"."delegation" = TRUE
       ) THEN
-        RAISE EXCEPTION 'Cannot switch delegation on or off for policy while there are open issues using that policy.';
+        RAISE EXCEPTION 'Policies with delegation enabled can only be allowed in areas with delegation enabled.';
+      END IF;
+      RETURN NULL;
+    END;
+  $$;
+
+CREATE CONSTRAINT TRIGGER "allowed_policy_delegation"
+  AFTER INSERT OR UPDATE ON "allowed_policy" DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE PROCEDURE
+  "allowed_policy_delegation_trigger"();
+
+COMMENT ON FUNCTION "allowed_policy_delegation_trigger"() IS 'Implementation of trigger "allowed_policy_delegation" on table "allowed_policy"';
+COMMENT ON TRIGGER "allowed_policy_delegation" ON "allowed_policy" IS 'Ensure that policies with delegation enabled can only be allowed in areas with delegation enabled';
+
+
+CREATE FUNCTION "policy_enable_delegation_trigger"()
+  RETURNS TRIGGER
+  LANGUAGE 'plpgsql' VOLATILE AS $$
+    BEGIN
+      IF NEW."delegation" IS DISTINCT FROM OLD."delegation" THEN
+        IF EXISTS (
+          SELECT NULL FROM "issue" WHERE "policy_id" = NEW."id" AND "closed" ISNULL
+        ) THEN
+          RAISE EXCEPTION 'Cannot switch delegation on or off for policy while there are open issues using that policy.';
+        END IF;
       END IF;
       RETURN NULL;
     END;
