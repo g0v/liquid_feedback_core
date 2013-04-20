@@ -7,7 +7,7 @@
 BEGIN;
 
 CREATE VIEW "liquid_feedback_version" AS
-  SELECT * FROM (VALUES ('2.2.3', 2, 2, 3))
+  SELECT * FROM (VALUES ('2.2.4', 2, 2, 4))
   AS "subquery"("string", "major", "minor", "revision");
 
 
@@ -104,6 +104,7 @@ CREATE TABLE "member" (
         "activated"             TIMESTAMPTZ,
         "last_activity"         DATE,
         "last_login"            TIMESTAMPTZ,
+        "last_delegation_check" TIMESTAMPTZ,
         "login"                 TEXT            UNIQUE,
         "password"              TEXT,
         "locked"                BOOLEAN         NOT NULL DEFAULT FALSE,
@@ -116,6 +117,7 @@ CREATE TABLE "member" (
         "notify_email_secret_expiry"   TIMESTAMPTZ,
         "notify_email_lock_expiry"     TIMESTAMPTZ,
         "notify_level"          "notify_level",
+        "login_recovery_expiry"        TIMESTAMPTZ,
         "password_reset_secret"        TEXT     UNIQUE,
         "password_reset_secret_expiry" TIMESTAMPTZ,
         "name"                  TEXT            UNIQUE,
@@ -159,6 +161,7 @@ COMMENT ON COLUMN "member"."admin_comment"        IS 'Hidden comment for adminis
 COMMENT ON COLUMN "member"."activated"            IS 'Timestamp of first activation of account (i.e. usage of "invite_code"); required to be set for "active" members';
 COMMENT ON COLUMN "member"."last_activity"        IS 'Date of last activity of member; required to be set for "active" members';
 COMMENT ON COLUMN "member"."last_login"           IS 'Timestamp of last login';
+COMMENT ON COLUMN "member"."last_delegation_check" IS 'Timestamp of last delegation check (i.e. confirmation of all unit and area delegations)';
 COMMENT ON COLUMN "member"."login"                IS 'Login name';
 COMMENT ON COLUMN "member"."password"             IS 'Password (preferably as crypto-hash, depending on the frontend or access layer)';
 COMMENT ON COLUMN "member"."locked"               IS 'Locked members can not log in.';
@@ -171,6 +174,9 @@ COMMENT ON COLUMN "member"."notify_email_secret"        IS 'Secret sent to the a
 COMMENT ON COLUMN "member"."notify_email_secret_expiry" IS 'Expiry date/time for "notify_email_secret"';
 COMMENT ON COLUMN "member"."notify_email_lock_expiry"   IS 'Date/time until no further email confirmation mails may be sent (abuse protection)';
 COMMENT ON COLUMN "member"."notify_level"         IS 'Selects which event notifications are to be sent to the "notify_email" mail address, may be NULL if member did not make any selection yet';
+COMMENT ON COLUMN "member"."login_recovery_expiry"        IS 'Date/time after which another login recovery attempt is allowed';
+COMMENT ON COLUMN "member"."password_reset_secret"        IS 'Secret string sent via e-mail for password recovery';
+COMMENT ON COLUMN "member"."password_reset_secret_expiry" IS 'Date/time until the password recovery secret is valid, and date/time after which another password recovery attempt is allowed';
 COMMENT ON COLUMN "member"."name"                 IS 'Distinct name of the member, may be NULL if account has not been activated yet';
 COMMENT ON COLUMN "member"."identification"       IS 'Optional identification number or code of the member';
 COMMENT ON COLUMN "member"."authentication"       IS 'Information about how this member was authenticated';
@@ -329,6 +335,7 @@ CREATE TABLE "session" (
         "additional_secret"     TEXT,
         "expiry"                TIMESTAMPTZ     NOT NULL DEFAULT now() + '24 hours',
         "member_id"             INT8            REFERENCES "member" ("id") ON DELETE SET NULL,
+        "needs_delegation_check" BOOLEAN        NOT NULL DEFAULT FALSE,
         "lang"                  TEXT );
 CREATE INDEX "session_expiry_idx" ON "session" ("expiry");
 
@@ -337,6 +344,7 @@ COMMENT ON TABLE "session" IS 'Sessions, i.e. for a web-frontend or API layer';
 COMMENT ON COLUMN "session"."ident"             IS 'Secret session identifier (i.e. random string)';
 COMMENT ON COLUMN "session"."additional_secret" IS 'Additional field to store a secret, which can be used against CSRF attacks';
 COMMENT ON COLUMN "session"."member_id"         IS 'Reference to member, who is logged in';
+COMMENT ON COLUMN "session"."needs_delegation_check" IS 'Set to TRUE, if member must perform a delegation check to proceed with login; see column "last_delegation_check" in "member" table';
 COMMENT ON COLUMN "session"."lang"              IS 'Language code of the selected language';
 
 
@@ -2245,9 +2253,6 @@ CREATE VIEW "event_seen_by_member" AS
   LEFT JOIN "interest"
     ON "member"."id" = "interest"."member_id"
     AND "event"."issue_id" = "interest"."issue_id"
-  LEFT JOIN "supporter"
-    ON "member"."id" = "supporter"."member_id"
-    AND "event"."initiative_id" = "supporter"."initiative_id"
   LEFT JOIN "ignored_member"
     ON "member"."id" = "ignored_member"."member_id"
     AND "event"."member_id" = "ignored_member"."other_member_id"
@@ -2255,7 +2260,6 @@ CREATE VIEW "event_seen_by_member" AS
     ON "member"."id" = "ignored_initiative"."member_id"
     AND "event"."initiative_id" = "ignored_initiative"."initiative_id"
   WHERE (
-    "supporter"."member_id" NOTNULL OR
     "interest"."member_id" NOTNULL OR
     ( "membership"."member_id" NOTNULL AND
       "event"."event" IN (
@@ -2306,9 +2310,6 @@ CREATE VIEW "selected_event_seen_by_member" AS
   LEFT JOIN "interest"
     ON "member"."id" = "interest"."member_id"
     AND "event"."issue_id" = "interest"."issue_id"
-  LEFT JOIN "supporter"
-    ON "member"."id" = "supporter"."member_id"
-    AND "event"."initiative_id" = "supporter"."initiative_id"
   LEFT JOIN "ignored_member"
     ON "member"."id" = "ignored_member"."member_id"
     AND "event"."member_id" = "ignored_member"."other_member_id"
@@ -2332,7 +2333,6 @@ CREATE VIEW "selected_event_seen_by_member" AS
         'discussion',
         'canceled_after_revocation_during_discussion' ) ) )
   AND (
-    "supporter"."member_id" NOTNULL OR
     "interest"."member_id" NOTNULL OR
     ( "membership"."member_id" NOTNULL AND
       "event"."event" IN (
@@ -4391,6 +4391,7 @@ CREATE FUNCTION "delete_member"("member_id_p" "member"."id"%TYPE)
     BEGIN
       UPDATE "member" SET
         "last_login"                   = NULL,
+        "last_delegation_check"        = NULL,
         "login"                        = NULL,
         "password"                     = NULL,
         "locked"                       = TRUE,
@@ -4400,6 +4401,7 @@ CREATE FUNCTION "delete_member"("member_id_p" "member"."id"%TYPE)
         "notify_email_secret"          = NULL,
         "notify_email_secret_expiry"   = NULL,
         "notify_email_lock_expiry"     = NULL,
+        "login_recovery_expiry"        = NULL,
         "password_reset_secret"        = NULL,
         "password_reset_secret_expiry" = NULL,
         "organizational_unit"          = NULL,
@@ -4455,6 +4457,7 @@ CREATE FUNCTION "delete_private_data"()
         "invite_code_expiry"           = NULL,
         "admin_comment"                = NULL,
         "last_login"                   = NULL,
+        "last_delegation_check"        = NULL,
         "login"                        = NULL,
         "password"                     = NULL,
         "lang"                         = NULL,
@@ -4464,6 +4467,7 @@ CREATE FUNCTION "delete_private_data"()
         "notify_email_secret_expiry"   = NULL,
         "notify_email_lock_expiry"     = NULL,
         "notify_level"                 = NULL,
+        "login_recovery_expiry"        = NULL,
         "password_reset_secret"        = NULL,
         "password_reset_secret_expiry" = NULL,
         "organizational_unit"          = NULL,
