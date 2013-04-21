@@ -66,13 +66,15 @@ COMMENT ON COLUMN "temporary_transaction_data"."txid" IS 'Value returned by func
 
 
 CREATE TABLE "system_setting" (
-        "member_ttl"            INTERVAL );
+        "member_ttl"            INTERVAL,
+        "delegation_ttl"        INTERVAL );
 CREATE UNIQUE INDEX "system_setting_singleton_idx" ON "system_setting" ((1));
 
 COMMENT ON TABLE "system_setting" IS 'This table contains only one row with different settings in each column.';
 COMMENT ON INDEX "system_setting_singleton_idx" IS 'This index ensures that "system_setting" only contains one row maximum.';
 
-COMMENT ON COLUMN "system_setting"."member_ttl" IS 'Time after members get their "active" flag set to FALSE, if they do not show any activity.';
+COMMENT ON COLUMN "system_setting"."member_ttl"     IS 'Time after members get their "active" flag set to FALSE, if they do not show any activity.';
+COMMENT ON COLUMN "system_setting"."delegation_ttl" IS 'Time after delegations get their "active" flag set to FALSE, if they do not get reconfirmed.';
 
 
 CREATE TABLE "contingent" (
@@ -1039,10 +1041,12 @@ CREATE TABLE "delegation" (
         "truster_id"            INT4            NOT NULL REFERENCES "member" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
         "trustee_id"            INT4            REFERENCES "member" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
         "scope"              "delegation_scope" NOT NULL,
-        "unit_id"               INT4            REFERENCES "unit" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-        "area_id"               INT4            REFERENCES "area" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+        "unit_id"               INT4            REFERENCES "unit"  ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+        "area_id"               INT4            REFERENCES "area"  ("id") ON DELETE CASCADE ON UPDATE CASCADE,
         "issue_id"              INT4            REFERENCES "issue" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
         "preference"            INT2            NOT NULL DEFAULT 0,
+        "active"                BOOLEAN         NOT NULL DEFAULT TRUE,
+        "confirmed"             DATE            NOT NULL DEFAULT CURRENT_DATE,
         CONSTRAINT "cant_delegate_to_yourself" CHECK ("truster_id" != "trustee_id"),
         CONSTRAINT "no_unit_delegation_to_null"
           CHECK ("trustee_id" NOTNULL OR "scope" != 'unit'),
@@ -1050,21 +1054,23 @@ CREATE TABLE "delegation" (
           ("scope" = 'unit'  AND "unit_id" NOTNULL AND "area_id" ISNULL  AND "issue_id" ISNULL ) OR
           ("scope" = 'area'  AND "unit_id" ISNULL  AND "area_id" NOTNULL AND "issue_id" ISNULL ) OR
           ("scope" = 'issue' AND "unit_id" ISNULL  AND "area_id" ISNULL  AND "issue_id" NOTNULL) ),
-        UNIQUE ("unit_id", "truster_id", "preference"),
-        UNIQUE ("area_id", "truster_id", "preference"),
+        UNIQUE ("unit_id",  "truster_id", "preference"),
+        UNIQUE ("area_id",  "truster_id", "preference"),
         UNIQUE ("issue_id", "truster_id", "preference"),
-        UNIQUE ("unit_id", "truster_id", "trustee_id"),
-        UNIQUE ("area_id", "truster_id", "trustee_id"),
+        UNIQUE ("unit_id",  "truster_id", "trustee_id"),
+        UNIQUE ("area_id",  "truster_id", "trustee_id"),
         UNIQUE ("issue_id", "truster_id", "trustee_id") );
 CREATE INDEX "delegation_truster_id_idx" ON "delegation" ("truster_id");
 CREATE INDEX "delegation_trustee_id_idx" ON "delegation" ("trustee_id");
 
 COMMENT ON TABLE "delegation" IS 'Delegation of vote-weight to other members';
 
-COMMENT ON COLUMN "delegation"."unit_id"  IS 'Reference to unit, if delegation is unit-wide, otherwise NULL';
-COMMENT ON COLUMN "delegation"."area_id"  IS 'Reference to area, if delegation is area-wide, otherwise NULL';
-COMMENT ON COLUMN "delegation"."issue_id" IS 'Reference to issue, if delegation is issue-wide, otherwise NULL';
+COMMENT ON COLUMN "delegation"."unit_id"    IS 'Reference to unit, if delegation is unit-wide, otherwise NULL';
+COMMENT ON COLUMN "delegation"."area_id"    IS 'Reference to area, if delegation is area-wide, otherwise NULL';
+COMMENT ON COLUMN "delegation"."issue_id"   IS 'Reference to issue, if delegation is issue-wide, otherwise NULL';
 COMMENT ON COLUMN "delegation"."preference" IS 'Preference rank in list of trustees';
+COMMENT ON COLUMN "delegation"."active"     IS 'Only active delegations are taken into account. Automatically set to FALSE, if "confirmed" is older than "system_setting"."delegation_ttl".';
+COMMENT ON COLUMN "delegation"."confirmed"  IS 'When the delegation was created or reconfirmed the last time';
 
 
 CREATE TABLE "direct_population_snapshot" (
@@ -1750,6 +1756,11 @@ COMMENT ON FUNCTION "voter_comment_fields_only_set_when_voter_comment_is_set_tri
 COMMENT ON TRIGGER "voter_comment_fields_only_set_when_voter_comment_is_set" ON "direct_voter" IS 'If "comment" is set to NULL, then other comment related fields are also set to NULL.';
 
 
+------------------------------------------------------
+-- Constraints for switching delegations on and off --
+------------------------------------------------------
+
+
 CREATE FUNCTION "unit_enable_delegation_trigger"()
   RETURNS TRIGGER
   LANGUAGE 'plpgsql' VOLATILE AS $$
@@ -2177,7 +2188,7 @@ CREATE VIEW "unit_delegation" AS
   JOIN "privilege"
     ON "delegation"."unit_id" = "privilege"."unit_id"
     AND "delegation"."truster_id" = "privilege"."member_id"
-  WHERE "member"."active" AND "privilege"."voting_right" AND "unit"."delegation"
+  WHERE "member"."active" AND "privilege"."voting_right" AND "delegation"."active" AND "unit"."delegation"
   ORDER BY
     "delegation"."truster_id",
     "delegation"."preference";
@@ -2201,7 +2212,7 @@ CREATE VIEW "area_delegation" AS
   JOIN "privilege"
     ON "area"."unit_id" = "privilege"."unit_id"
     AND "delegation"."truster_id" = "privilege"."member_id"
-  WHERE "member"."active" AND "privilege"."voting_right" AND "area"."delegation"
+  WHERE "member"."active" AND "privilege"."voting_right" AND "delegation"."active" AND "area"."delegation"
   ORDER BY
     "area"."id",
     "delegation"."truster_id",
@@ -2230,7 +2241,7 @@ CREATE VIEW "issue_delegation" AS
   JOIN "privilege"
     ON "area"."unit_id" = "privilege"."unit_id"
     AND "delegation"."truster_id" = "privilege"."member_id"
-  WHERE "member"."active" AND "privilege"."voting_right" AND "issue"."delegation"
+  WHERE "member"."active" AND "privilege"."voting_right" AND "delegation"."active" AND "issue"."delegation"
   ORDER BY
     "issue"."id",
     "delegation"."truster_id",
@@ -2637,15 +2648,17 @@ CREATE TYPE "delegation_chain_row" AS (
         "participation"         BOOLEAN,
         "overridden"            BOOLEAN,
         "scope_in"              "delegation_scope",
-        "scope_out"             "delegation_scope" );
+        "scope_out"             "delegation_scope",
+        "delegation_active"     BOOLEAN );
 
 COMMENT ON TYPE "delegation_chain_row" IS 'Type of rows returned by "delegation_chain" function';
 
-COMMENT ON COLUMN "delegation_chain_row"."index"         IS 'Index starting with 0 and counting up';
-COMMENT ON COLUMN "delegation_chain_row"."participation" IS 'In case of delegation chains for issues: interest, for areas and units always null';
-COMMENT ON COLUMN "delegation_chain_row"."overridden"    IS 'True, if an entry with lower index has "participation" set to true';
-COMMENT ON COLUMN "delegation_chain_row"."scope_in"      IS 'Scope of used incoming delegation';
-COMMENT ON COLUMN "delegation_chain_row"."scope_out"     IS 'Scope of used outgoing delegation';
+COMMENT ON COLUMN "delegation_chain_row"."index"             IS 'Index starting with 0 and counting up';
+COMMENT ON COLUMN "delegation_chain_row"."participation"     IS 'In case of delegation chains for issues: interest, for areas and units always null';
+COMMENT ON COLUMN "delegation_chain_row"."overridden"        IS 'True, if an entry with lower index has "participation" set to true';
+COMMENT ON COLUMN "delegation_chain_row"."scope_in"          IS 'Scope of used incoming delegation';
+COMMENT ON COLUMN "delegation_chain_row"."scope_out"         IS 'Scope of used outgoing delegation';
+COMMENT ON COLUMN "delegation_chain_row"."delegation_active" IS '"active" flag of delegation';
 
 
 CREATE FUNCTION "delegation_chain_for_closed_issue"
@@ -2658,13 +2671,14 @@ CREATE FUNCTION "delegation_chain_for_closed_issue"
       "direct_voter_row"     "direct_voter"%ROWTYPE;
       "delegating_voter_row" "delegating_voter"%ROWTYPE;
     BEGIN
-      "output_row"."index"         := 0;
-      "output_row"."member_id"     := "member_id_p";
-      "output_row"."member_valid"  := TRUE;
-      "output_row"."participation" := FALSE;
-      "output_row"."overridden"    := FALSE;
-      "output_row"."scope_in"      := NULL;
-      "output_row"."scope_out"     := NULL;
+      "output_row"."index"             := 0;
+      "output_row"."member_id"         := "member_id_p";
+      "output_row"."member_valid"      := TRUE;
+      "output_row"."participation"     := FALSE;
+      "output_row"."overridden"        := FALSE;
+      "output_row"."scope_in"          := NULL;
+      "output_row"."scope_out"         := NULL;
+      "output_row"."delegation_active" := TRUE;
 
       -- the member voted itsself
       SELECT INTO "direct_voter_row" * FROM "direct_voter"
@@ -2773,11 +2787,12 @@ CREATE FUNCTION "delegation_chain"
       "output_rows" := '{}';
 
       -- first row is the member itself
-      "output_row"."index"         := 0;
-      "output_row"."member_id"     := "member_id_p";
-      "output_row"."overridden"    := FALSE;
-      "output_row"."scope_in"      := NULL;
-      "output_row"."scope_out"     := NULL;
+      "output_row"."index"             := 0;
+      "output_row"."member_id"         := "member_id_p";
+      "output_row"."overridden"        := FALSE;
+      "output_row"."scope_in"          := NULL;
+      "output_row"."scope_out"         := NULL;
+      "output_row"."delegation_active" := TRUE;
 
       -- member_valid
       "output_row"."member_valid" := EXISTS (
@@ -2852,7 +2867,7 @@ CREATE FUNCTION "delegation_chain"
 
           -- participation
           IF "scope_v" = 'issue' THEN
-            IF "output_row"."member_valid" THEN
+            IF "output_row"."member_valid" AND "delegation_row"."active" THEN
               IF "issue_row"."fully_frozen" ISNULL THEN
                 "output_row"."participation" := EXISTS (
                   SELECT NULL FROM "interest"
@@ -2871,6 +2886,9 @@ CREATE FUNCTION "delegation_chain"
 
           -- scope_out
           "output_row"."scope_out" := "delegation_row"."scope";
+
+          -- active
+          "output_row"."delegation_active" := "delegation_row"."active";
 
           "output_rows" := "output_rows" || "output_row";
           "output_row"."index" := "output_row"."index" + 1;
@@ -3019,11 +3037,17 @@ CREATE FUNCTION "check_activity"()
           WHERE "active" = TRUE
           AND "last_activity" < (now() - "system_setting_row"."member_ttl")::DATE;
       END IF;
+      IF "system_setting_row"."delegation_ttl" NOTNULL THEN
+        UPDATE "delegation" SET "active" = FALSE
+          WHERE "active" = TRUE
+          AND "issue_id" ISNULL
+          AND "confirmed" < (now() - "system_setting_row"."delegation_ttl")::DATE;
+      END IF;
       RETURN;
     END;
   $$;
 
-COMMENT ON FUNCTION "check_activity"() IS 'Deactivates members when "last_activity" is older than "system_setting"."member_ttl".';
+COMMENT ON FUNCTION "check_activity"() IS 'Deactivates members when "last_activity" is older than "system_setting"."member_ttl" and delegations when "confirmed" is older than "system_setting"."member_ttl".';
 
 
 CREATE FUNCTION "calculate_member_counts"()
