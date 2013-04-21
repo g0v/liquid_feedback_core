@@ -2,6 +2,7 @@
 \.AppleDouble
 :2e
 ^lf_update$
+^lf_update_suggestion_order$
 ^config$
 ^tmp/
 
