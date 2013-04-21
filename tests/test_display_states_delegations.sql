@@ -5,6 +5,8 @@
 
 BEGIN;
 
+SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+
 CREATE FUNCTION "time_warp"() RETURNS VOID
 LANGUAGE 'plpgsql' VOLATILE AS $$
   BEGIN
@@ -13,7 +15,8 @@ LANGUAGE 'plpgsql' VOLATILE AS $$
       "created"      = "created"      - '1 hour 1 minute'::INTERVAL,
       "accepted"     = "accepted"     - '1 hour 1 minute'::INTERVAL,
       "half_frozen"  = "half_frozen"  - '1 hour 1 minute'::INTERVAL,
-      "fully_frozen" = "fully_frozen" - '1 hour 1 minute'::INTERVAL;
+      "fully_frozen" = "fully_frozen" - '1 hour 1 minute'::INTERVAL
+    WHERE "closed" ISNULL;
     PERFORM "check_everything"();
     RETURN;
   END;
@@ -224,8 +227,8 @@ LANGUAGE 'plpgsql' VOLATILE AS $$
       INSERT INTO "initiative" ("issue_id", "name") VALUES
       (i, 'Initiative #' || i );
 
-      INSERT INTO "draft" ("initiative_id", "author_id", "content") VALUES
-      (i, 4, 'Lorem ipsum...'); -- user4
+      INSERT INTO "draft" ("initiative_id", "author_id", "name", "content") VALUES
+      (i, 4, 'Name', 'Lorem ipsum...'); -- user4
 
       INSERT INTO "initiator" ("initiative_id", "member_id") VALUES
       (i, 4); -- user4
@@ -259,6 +262,11 @@ SELECT "time_warp"();
 SELECT "time_warp"();
 
 -- vote
+
+-- override protection triggers:
+INSERT INTO "temporary_transaction_data" ("key", "value")
+  VALUES ('override_protection_triggers', TRUE::TEXT);
+
 INSERT INTO "direct_voter" ("member_id", "issue_id") VALUES
 (11, 7),
 (14, 7),
@@ -273,6 +281,10 @@ INSERT INTO "vote" ("member_id", "issue_id", "initiative_id", "grade") VALUES
 (41, 7, 7,  1), -- pro
 (44, 7, 7, -1), -- contra
 (47, 7, 7,  1); -- pro
+
+-- finish overriding protection triggers (avoids garbage):
+DELETE FROM "temporary_transaction_data"
+  WHERE "key" = 'override_protection_triggers';
 
 SELECT "time_warp"();
 

@@ -7,6 +7,8 @@
 
 BEGIN;
 
+SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+
 CREATE FUNCTION "time_warp"() RETURNS VOID
 LANGUAGE 'plpgsql' VOLATILE AS $$
   BEGIN
@@ -15,7 +17,8 @@ LANGUAGE 'plpgsql' VOLATILE AS $$
       "created"      = "created"      - '1 hour 1 minute'::INTERVAL,
       "accepted"     = "accepted"     - '1 hour 1 minute'::INTERVAL,
       "half_frozen"  = "half_frozen"  - '1 hour 1 minute'::INTERVAL,
-      "fully_frozen" = "fully_frozen" - '1 hour 1 minute'::INTERVAL;
+      "fully_frozen" = "fully_frozen" - '1 hour 1 minute'::INTERVAL
+    WHERE "closed" ISNULL;
     PERFORM "check_everything"();
     RETURN;
   END;
@@ -179,8 +182,8 @@ LANGUAGE 'plpgsql' VOLATILE AS $$
       (1, i);
       INSERT INTO "initiative" ("issue_id", "name") VALUES
       (i, 'Initiative #' || i);
-      INSERT INTO "draft" ("initiative_id", "author_id", "content") VALUES
-      (i, 9, 'Lorem ipsum...');
+      INSERT INTO "draft" ("initiative_id", "author_id", "name", "content") VALUES
+      (i, 9, 'Name', 'Lorem ipsum...');
       INSERT INTO "initiator" ("initiative_id", "member_id") VALUES
       (i, 9);
       INSERT INTO "suggestion" ("initiative_id", "author_id", "name", "content") VALUES
@@ -205,14 +208,14 @@ LANGUAGE 'plpgsql' VOLATILE AS $$
     -- admission__initiative_created_in_existing_issue
     INSERT INTO "initiative" ("issue_id", "name") VALUES
     (1, 'Initiative #5');
-    INSERT INTO "draft" ("initiative_id", "author_id", "content") VALUES
-    (5, 9, 'Lorem ipsum...');
+    INSERT INTO "draft" ("initiative_id", "author_id", "name", "content") VALUES
+    (5, 9, 'Name', 'Lorem ipsum...');
     INSERT INTO "initiator" ("initiative_id", "member_id") VALUES
     (5, 9);
 
     -- admission__new_draft_created
-    INSERT INTO "draft" ("initiative_id", "author_id", "content") VALUES
-    (1, 9, 'Lorem ipsum 2 ...');
+    INSERT INTO "draft" ("initiative_id", "author_id", "name", "content") VALUES
+    (1, 9, 'Name 2', 'Lorem ipsum 2 ...');
 
     -- admission__suggestion_created
 
@@ -231,14 +234,14 @@ LANGUAGE 'plpgsql' VOLATILE AS $$
     -- discussion__initiative_created_in_existing_issue
     INSERT INTO "initiative" ("issue_id", "name") VALUES
     (1, 'Initiative #6');
-    INSERT INTO "draft" ("initiative_id", "author_id", "content") VALUES
-    (6, 9, 'Lorem ipsum...');
+    INSERT INTO "draft" ("initiative_id", "author_id", "name", "content") VALUES
+    (6, 9, 'Name', 'Lorem ipsum...');
     INSERT INTO "initiator" ("initiative_id", "member_id") VALUES
     (6, 9);
 
     -- discussion__new_draft_created
-    INSERT INTO "draft" ("initiative_id", "author_id", "content") VALUES
-    (1, 9, 'Lorem ipsum 3 ...');
+    INSERT INTO "draft" ("initiative_id", "author_id", "name", "content") VALUES
+    (1, 9, 'Name 3', 'Lorem ipsum 3 ...');
 
     -- discussion__suggestion_created
     INSERT INTO "suggestion" ("initiative_id", "author_id", "name", "content") VALUES
@@ -258,8 +261,8 @@ LANGUAGE 'plpgsql' VOLATILE AS $$
     -- verification__initiative_created_in_existing_issue
     INSERT INTO "initiative" ("issue_id", "name") VALUES
     (1, 'Initiative #7');
-    INSERT INTO "draft" ("initiative_id", "author_id", "content") VALUES
-    (7, 9, 'Lorem ipsum...');
+    INSERT INTO "draft" ("initiative_id", "author_id", "name", "content") VALUES
+    (7, 9, 'Name', 'Lorem ipsum...');
     INSERT INTO "initiator" ("initiative_id", "member_id") VALUES
     (7, 9);
 

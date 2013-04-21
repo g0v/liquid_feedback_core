@@ -5,6 +5,8 @@
 
 BEGIN;
 
+SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+
 INSERT INTO "member"
 ("activated", "last_activity", "active", "login", "name") VALUES
 ('now', 'now', TRUE, 'user1',  'User #1'), -- id  1
@@ -44,7 +46,8 @@ CREATE FUNCTION "time_warp"() RETURNS VOID
         "created"      = "created"      - '1 hour 1 minute'::INTERVAL,
         "accepted"     = "accepted"     - '1 hour 1 minute'::INTERVAL,
         "half_frozen"  = "half_frozen"  - '1 hour 1 minute'::INTERVAL,
-        "fully_frozen" = "fully_frozen" - '1 hour 1 minute'::INTERVAL;
+        "fully_frozen" = "fully_frozen" - '1 hour 1 minute'::INTERVAL
+      WHERE "closed" ISNULL;
       PERFORM "check_everything"();
       RETURN;
     END;
@@ -78,8 +81,8 @@ INSERT INTO "issue" ("area_id", "policy_id") VALUES
 INSERT INTO "initiative" ("issue_id", "name") VALUES
 (1, 'Initiative #1');
 
-INSERT INTO "draft" ("initiative_id", "author_id", "content") VALUES
-(1, 4, 'Lorem ipsum...'); -- user4
+INSERT INTO "draft" ("initiative_id", "author_id", "name", "content") VALUES
+(1, 4, 'Name', 'Lorem ipsum...'); -- user4
 
 INSERT INTO "initiator" ("initiative_id", "member_id") VALUES
 (1, 4); -- user4
