@@ -1,0 +1,65 @@
+# Configuration for lighttpd
+# /etc/lighttpd/conf-available/60-pirate_feedback.conf
+#
+# You have to set the document root in /etc/lighttpd/lighttpd.conf:
+# server.document-root = "/opt/pirate_feedback/webmcp/cgi-bin"
+
+server.modules += ("mod_cgi", "mod_rewrite", "mod_setenv")
+
+# Redirect to main host name
+$HTTP["host"] != "feedback.example.com" {
+  # Short links
+  $HTTP["host"] == "short.example.com" {
+    url.redirect = (
+      "^/i(\d+)$" => "https://feedback.example.com/initiative/show/$1.html",
+      "^/t(\d+)$" => "https://feedback.example.com/issue/show/$1.html",
+      "^/s(\d+)$" => "https://feedback.example.com/suggestion/show/$1.html",
+      "^/a(\d+)$" => "https://feedback.example.com/argument/show/$1.html",
+      "^/v(\d+)$" => "https://feedback.example.com/vote/list.html?issue_id=$1"
+    )
+  }
+  url.redirect = (".*" => "https://feedback.example.com/")
+}
+# http => https
+else $HTTP["scheme"] != "https" {
+  url.redirect = (".*" => "https://feedback.example.com/")
+}
+
+# Enable CGI-Execution of *.lua files through lua binary
+cgi.assign += ( ".lua" => "/usr/bin/lua5.1" )
+
+alias.url += (
+  "/fastpath/"   => "/opt/pirate_feedback/liquid_feedback_frontend/fastpath/",
+  "/static/"     => "/opt/pirate_feedback/liquid_feedback_frontend/static/",
+  "/favicon.ico" => "/opt/pirate_feedback/liquid_feedback_frontend/static/favicon.ico"
+)
+
+# Configure environment
+setenv.add-environment += (
+  "LANG" => "de_DE.UTF-8",
+  "WEBMCP_APP_BASEPATH" => "/opt/pirate_feedback/liquid_feedback_frontend/",
+  "WEBMCP_CONFIG_NAME"  => "myconfig"
+)
+
+# URL beautification
+url.rewrite-once += (
+  # do not rewrite static URLs
+  "^/fastpath/(.*)$" => "/fastpath/$1",
+  "^/static/(.*)$"   => "/static/$1",
+  "^/favicon.ico$"   => "/favicon.ico",
+  # base URL
+  "^/(\?(.*))?$" => "/webmcp-wrapper.lua?_webmcp_urldepth=0&_webmcp_module=index&_webmcp_view=index&$2",
+  # module base URLs
+  "^/([^/\?]+)/(\?(.*))?$" => "/webmcp-wrapper.lua?_webmcp_urldepth=1&_webmcp_module=$1&_webmcp_view=index&$3",
+  # actions
+  "^/([^/\?]+)/([^/\.\?]+)(\?(.*))?$" => "/webmcp-wrapper.lua?_webmcp_urldepth=1&_webmcp_module=$1&_webmcp_action=$2&$4",
+  # views without numeric id or string ident
+  "^/([^/\?]+)/([^/\?]+)\.([^/\.\?]+)(\?(.*))?$" => "/webmcp-wrapper.lua?_webmcp_urldepth=1&_webmcp_module=$1&_webmcp_view=$2&_webmcp_suffix=$3&$5",
+  # views with numeric id or string ident
+  "^/([^/\?]+)/([^/\?]+)/([^/\?]+)\.([^/\.\?]+)(\?(.*))?$" => "/webmcp-wrapper.lua?_webmcp_urldepth=2&_webmcp_module=$1&_webmcp_view=$2&_webmcp_id=$3&_webmcp_suffix=$4&$6"
+)
+
+$HTTP["url"] =~ "^/fastpath/" {
+  cgi.assign = ( "" => "" )
+  setenv.add-response-header = ( "Cache-Control" => "private; max-age=86400" )
+}

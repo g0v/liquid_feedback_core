@@ -1,0 +1,32 @@
+#!/bin/bash
+# Imports members from a CSV file if a CSV file is found
+# This script is intended to be run by cron as root.
+
+# read configuration
+path=$( dirname $( readlink -f $( dirname $0 ) ) )
+source $path/liquid_feedback_core/config
+
+if [ ! -e $member_import_csvfile ]
+then
+  exit 0
+fi
+
+(
+
+  if [ "` file -ib $member_import_csvfile `" = "text/plain; charset=utf-8" ]
+  then
+
+    cd $path/liquid_feedback_frontend/ && \
+    su $dbuser -c " echo \"util.import_members('$member_import_csvfile')\" | ../webmcp/bin/webmcp_shell myconfig " | \
+    # remove non-printable characters, because they confuse the mail command
+    tr -cd "[:print:]\n"
+
+  else
+
+    echo "Format of the CSV file is '` file -ib $csvfile `' instead of the expected 'text/plain; charset=utf-8'!"
+
+  fi
+
+  mv $member_import_csvfile $member_import_csvfile_processed.processed_$( date +%Y-%m-%d_%H-%I-%S )
+
+) 2>&1 | mail -s "Pirate Feedback member import report" $member_import_mail

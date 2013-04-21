@@ -44,7 +44,7 @@ int main(int argc, char **argv) {
     fprintf(out, "<conninfo> is specified by PostgreSQL's libpq,\n");
     fprintf(out, "see http://www.postgresql.org/docs/9.1/static/libpq-connect.html\n");
     fprintf(out, "\n");
-    fprintf(out, "Example: %s dbname=liquid_feedback\n", argv[0]);
+    fprintf(out, "Example: %s dbname=pirate_feedback\n", argv[0]);
     fprintf(out, "\n");
     return argc == 1 ? 1 : 0;
   }
@@ -89,7 +89,7 @@ int main(int argc, char **argv) {
   } else {
     PQclear(res);
   }
- 
+
   // check member activity:
   res = PQexec(db, "SET TRANSACTION ISOLATION LEVEL READ COMMITTED; SELECT \"check_activity\"()");
   if (!res) {

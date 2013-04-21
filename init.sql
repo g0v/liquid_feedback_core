@@ -11,7 +11,7 @@ INSERT INTO "unit" (
         'Default unit',
         'Default unit created by init script.'
     );
-        
+
 
 INSERT INTO "member" (
         "login",

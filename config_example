@@ -1,0 +1,22 @@
+#!/bin/bash
+# configuration for shell scripts
+
+# database names
+dbname="pirate_feedback"
+dbname_export="${dbname}_export"
+# database user (usually www-data or apache)
+dbuser="www-data"
+
+# path
+path="/opt/pirate_feedback"
+
+# === database export ===
+exportfile="$path/export_dump/pirate_feedback_example_export_` date +%Y-%m-%d_%H-%M `.sql.gz"
+
+# === member import ===
+# absolute path to the CSV file
+member_import_csvfile="$path/member_import/member_import.csv"
+# absolute path where the processed CSV files will be moved; ".processed_<date>" will be appended
+member_import_csvfile_processed="$member_import_csvfile"
+# mail address(es) for report, separated by spaces
+member_import_mail="pirate_feedback@example.com"

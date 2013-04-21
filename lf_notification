@@ -1,0 +1,27 @@
+#!/bin/bash
+# sends email notifications
+# will be started by /etc/init.d/lf_notification
+
+# read configuration
+path=$( dirname $( readlink -f $( dirname $0 ) ) )
+source $path/liquid_feedback_core/config
+
+PIDFILE="/var/run/lf_notification.pid"
+PID=$$
+
+if [ -f "${PIDFILE}" ] && kill -CONT $( cat "${PIDFILE}" ); then
+  echo "lf_notification is already running."
+  exit 1
+fi
+
+echo "${PID}" > "${PIDFILE}"
+
+log=/var/log/pirate_feedback/notification.log
+
+while true; do
+  cd $path/liquid_feedback_frontend/
+  date >> $log
+  su $dbuser -c ' echo "Event:send_notifications()" | ../webmcp/bin/webmcp_shell myconfig ' >> $log
+  sleep 60
+done
+
