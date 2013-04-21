@@ -1882,7 +1882,7 @@ CREATE FUNCTION "policy_enable_delegation_trigger"()
   $$;
 
 CREATE CONSTRAINT TRIGGER "policy_enable_delegation"
-  AFTER INSERT OR UPDATE ON "policy" DEFERRABLE INITIALLY DEFERRED
+  AFTER UPDATE ON "policy" DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE PROCEDURE
   "policy_enable_delegation_trigger"();
 
