@@ -423,8 +423,17 @@ CREATE TABLE "policy" (
             "admission_time" ISNULL AND "discussion_time" ISNULL AND
             "verification_time" ISNULL AND "voting_time" ISNULL ) ),
         CONSTRAINT "issue_quorum_if_and_only_if_not_polling" CHECK (
-          "polling" = "issue_quorum_num" ISNULL AND
-          "polling" = "issue_quorum_den" ISNULL ) );
+          ( "polling" = FALSE AND
+            ( "issue_quorum_num" NOTNULL OR "issue_quorum_direct_num" NOTNULL ) AND
+            "issue_quorum_num"        ISNULL = "issue_quorum_den"        ISNULL AND
+            "issue_quorum_direct_num" ISNULL = "issue_quorum_direct_den" ISNULL AND
+            ( "issue_quorum_direct_num" * "issue_quorum_den" <= "issue_quorum_num" * "issue_quorum_direct_den" OR
+              "issue_quorum_direct_num" ISNULL OR "issue_quorum_num" ISNULL ) ) OR
+          ( "polling" = TRUE AND
+            "issue_quorum_num" ISNULL AND
+            "issue_quorum_den" ISNULL AND
+            "issue_quorum_direct_num" ISNULL AND
+            "issue_quorum_direct_den" ISNULL ) ) );
 CREATE INDEX "policy_active_idx" ON "policy" ("active");
 
 COMMENT ON TABLE "policy" IS 'Policies for a particular proceeding type (timelimits, quorum)';
@@ -4309,6 +4318,7 @@ CREATE FUNCTION "check_issue"
             PERFORM "set_snapshot_event"("issue_id_p", 'half_freeze');
           ELSIF "persist"."state" = 'verification' THEN
             PERFORM "set_snapshot_event"("issue_id_p", 'full_freeze');
+            -- initiative quorum
             SELECT * INTO "issue_row" FROM "issue" WHERE "id" = "issue_id_p";
             SELECT * INTO "policy_row" FROM "policy"
               WHERE "id" = "issue_row"."policy_id";
@@ -4368,6 +4378,7 @@ CREATE FUNCTION "check_issue"
         RETURN NULL;
       END IF;
       IF "persist"."state" = 'admission' THEN
+        -- issue quorum
         SELECT * INTO "issue_row" FROM "issue" WHERE "id" = "issue_id_p"
           FOR UPDATE;
         SELECT * INTO "policy_row"
@@ -4376,11 +4387,10 @@ CREATE FUNCTION "check_issue"
           SELECT NULL FROM "initiative"
           WHERE "issue_id" = "issue_id_p"
           AND "supporter_count"        > 0
-          AND "supporter_count"        * "policy_row"."issue_quorum_den"
-          >= "issue_row"."population"  * "policy_row"."issue_quorum_num"
-          AND "direct_supporter_count" > 0
-          AND "direct_supporter_count" * "policy_row"."issue_quorum_direct_den"
-          >= "issue_row"."population"  * "policy_row"."issue_quorum_direct_num"
+          AND "supporter_count"        * coalesce("policy_row"."issue_quorum_den", 0)
+          >= "issue_row"."population"  * coalesce("policy_row"."issue_quorum_num", 0)
+          AND "direct_supporter_count" * coalesce("policy_row"."issue_quorum_direct_den", 0)
+          >= "issue_row"."population"  * coalesce("policy_row"."issue_quorum_direct_num", 0)
         ) THEN
           UPDATE "issue" SET
             "state"          = 'discussion',
