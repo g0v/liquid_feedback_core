@@ -33,4 +33,6 @@ ALTER TABLE "contingent" ADD COLUMN "polling" BOOLEAN DEFAULT FALSE;
 ALTER TABLE "draft" ADD COLUMN "name" TEXT;
 UPDATE "draft" SET "name" = "initiative"."name" FROM "initiative" WHERE "draft"."initiative_id" = "initiative"."id";
 
+ALTER TABLE "area" DROP COLUMN "member_weight";
+
 COMMIT;

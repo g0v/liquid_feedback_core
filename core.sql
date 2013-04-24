@@ -515,7 +515,6 @@ CREATE TABLE "area" (
         "description"           TEXT            NOT NULL DEFAULT '',
         "delegation"            BOOLEAN         NOT NULL DEFAULT TRUE,
         "direct_member_count"   INT4,
-        "member_weight"         INT4,
         "text_search_data"      TSVECTOR );
 CREATE INDEX "area_unit_id_idx" ON "area" ("unit_id");
 CREATE INDEX "area_active_idx" ON "area" ("active");
@@ -531,7 +530,6 @@ COMMENT ON TABLE "area" IS 'Subject areas';
 COMMENT ON COLUMN "area"."active"              IS 'TRUE means new issues can be created in this area';
 COMMENT ON COLUMN "unit"."delegation"          IS 'Enable delegation';
 COMMENT ON COLUMN "area"."direct_member_count" IS 'Number of active members of that area (ignoring their weight), as calculated from view "area_member_count"';
-COMMENT ON COLUMN "area"."member_weight"       IS 'Obsolete';
 
 
 CREATE TABLE "area_setting" (
